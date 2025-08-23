@@ -8,7 +8,7 @@ from collections import deque
 # CONFIGURATION - Update these paths
 MODEL_PATH = "C:/Users/Shushant/Documents/GitHub/Ai-Fitness-Coach/testing/models/model-2.pt"  # Your trained model
 TEST_IMAGE = "testing-material/squat-8.jpg"  # Test image path
-TEST_VIDEO = "testing-material/Side-Curl-Rana.mp4"  # Test video path
+TEST_VIDEO = "testing-material/front-bicep-curls.mp4"  # Test video path
 
 # Output directory
 OUTPUT_DIR = Path("runs/fitness_trainer_test")
@@ -2545,6 +2545,7 @@ def draw_feedback_messages(image, feedback_messages, position=(750, 150)):
     
     return image
 
+
 class VelocityTracker:
     def __init__(self, smoothing_window=5):
         self.previous_keypoints = None
@@ -2563,13 +2564,37 @@ class VelocityTracker:
         self.last_keypoints = None 
         self.last_confidences = None
         self.frame_count = 0
+        
+        # NEW: Erratic jitter detection system
+        self.jitter_detector = ErraticJitterDetector(
+            extreme_multiplier=1.065,  # Extreme speed is 15x the fast threshold
+            jitter_window=2,          # Look at 5 consecutive frames
+            keypoint_threshold=0.1,   # 60% of keypoints must be erratic
+            temporal_smoothing=3      # Smooth jitter detection over 3 frames
+        )
+        
+        # NEW: Track erratic periods for other functions to avoid processing
+        self.current_frame_erratic = False
+        self.erratic_period_history = []  # Track recent erratic classifications
+        self.erratic_period_smoothing = 3  # Smooth erratic periods over N frames
 
     def get_integrated_rpe_analysis(self, rep_counter):
         """
         Get RPE analysis using integrated data from all system components
-        ENHANCED: Passes required data for ready position detection
+        ENHANCED: Now skips analysis during erratic periods
         """
         try:
+            # NEW: Skip RPE analysis during erratic periods
+            if self.is_current_period_erratic():
+                return {
+                    'rpe': None,  # No RPE during erratic periods
+                    'confidence': 'erratic_motion',
+                    'interpretation': 'Skipping RPE calculation due to erratic pose estimation',
+                    'breakdown': {},
+                    'fatigue_indicators': [],
+                    'data_sources': {'status': 'paused_due_to_jitter'}
+                }
+            
             # Get all required data
             rep_data = rep_counter.get_rep_summary()
             rom_data = rep_counter.get_range_of_motion_data()
@@ -2578,11 +2603,10 @@ class VelocityTracker:
             current_velocities = self.velocity_history[-5:] if len(self.velocity_history) >= 5 else self.velocity_history
             
             # NEW: Get additional data needed for ready position detection
-            # These should come from your main processing loop - for now we'll handle missing data gracefully
-            angles = getattr(self, 'last_angles', None)  # You'll need to store this in VelocityTracker
-            keypoints = getattr(self, 'last_keypoints', None)  # You'll need to store this in VelocityTracker  
-            confidences = getattr(self, 'last_confidences', None)  # You'll need to store this in VelocityTracker
-            frame_count = getattr(self, 'frame_count', 0)  # You'll need to store this in VelocityTracker
+            angles = getattr(self, 'last_angles', None)
+            keypoints = getattr(self, 'last_keypoints', None)  
+            confidences = getattr(self, 'last_confidences', None)
+            frame_count = getattr(self, 'frame_count', 0)
             
             # Update RPE data with ready position check
             self.rpe_calculator.update_rpe_data(
@@ -2590,7 +2614,7 @@ class VelocityTracker:
                 fitness_scorer_data={'current_points': self.fitness_scorer.current_points},
                 velocity_data=current_velocities[-1] if current_velocities else {},
                 body_measurements=body_measurements,
-                # NEW: Pass ready position detection data
+                # Pass ready position detection data
                 angles=angles,
                 keypoints=keypoints,
                 confidences=confidences,
@@ -2617,12 +2641,10 @@ class VelocityTracker:
                 'data_sources': {}
             }
 
-
     def calculate_velocities(self, current_keypoints, current_timestamp, confidences, confidence_threshold=0.3):
-        """Calculate velocities for all keypoints with adaptive scaling"""
+        """Calculate velocities for all keypoints with adaptive scaling and jitter detection"""
         velocities = {}
         
-        # *** NEW CODE TO ADD ***
         # Store the current frame data for RPE ready position detection
         self.last_angles = None  # We'll calculate this below
         self.last_keypoints = current_keypoints.copy() if current_keypoints is not None else None
@@ -2636,10 +2658,13 @@ class VelocityTracker:
             # IMPORTANT: Calculate body proportions even on first frame
             self.body_calculator.update_body_proportions(current_keypoints, confidences, confidence_threshold)
             
-            # *** NEW CODE TO ADD ***
             # Calculate angles for the first frame too (needed for RPE)
             if current_keypoints is not None and confidences is not None:
                 self.last_angles = calculate_body_angles(current_keypoints, confidences, confidence_threshold)
+            
+            # NEW: Initialize jitter detector with first frame
+            self.current_frame_erratic = False
+            self.erratic_period_history.append(False)
             
             return velocities
         
@@ -2653,7 +2678,6 @@ class VelocityTracker:
             current_keypoints, confidences, confidence_threshold
         )
         
-        # *** NEW CODE TO ADD ***
         # Calculate angles for RPE ready position detection
         if current_keypoints is not None and confidences is not None:
             self.last_angles = calculate_body_angles(current_keypoints, confidences, confidence_threshold)
@@ -2671,10 +2695,16 @@ class VelocityTracker:
             'left_toes', 'right_toes'
         ]
         
+        # NEW: Track erratic keypoints for this frame
+        erratic_keypoints = []
+        total_valid_keypoints = 0
+        
         for i, (current_point, prev_point, conf, name) in enumerate(
             zip(current_keypoints, self.previous_keypoints, confidences, keypoint_names)
         ):
             if conf > confidence_threshold:
+                total_valid_keypoints += 1
+                
                 # Calculate displacement
                 dx = current_point[0] - prev_point[0]
                 dy = current_point[1] - prev_point[1]
@@ -2686,22 +2716,32 @@ class VelocityTracker:
                 # Calculate speed (magnitude)
                 speed = np.sqrt(vx**2 + vy**2)
                 
-                # CLASSIFY SPEED USING ADAPTIVE THRESHOLDS
-                if speed < velocity_thresholds['slow']:
-                    speed_category = 'slow'
-                elif speed < velocity_thresholds['medium']:
-                    speed_category = 'medium'
-                else:
-                    speed_category = 'fast'
+                # ENHANCED: Classify speed using adaptive thresholds INCLUDING extreme category
+                speed_category, is_erratic = self._classify_speed_with_jitter_detection(
+                    speed, velocity_thresholds
+                )
+                
+                # NEW: Track erratic keypoints
+                if is_erratic:
+                    erratic_keypoints.append(name)
                 
                 velocities[name] = {
                     'vx': vx,
                     'vy': vy, 
                     'speed': speed,
-                    'speed_category': speed_category,  # NEW: Add speed classification
+                    'speed_category': speed_category,
+                    'is_erratic': is_erratic,  # NEW: Flag individual keypoints as erratic
                     'confidence': conf,
-                    'thresholds': velocity_thresholds  # NEW: Include current thresholds for debugging
+                    'thresholds': velocity_thresholds
                 }
+        
+        # NEW: Determine if current frame is erratic using jitter detector
+        self.current_frame_erratic = self.jitter_detector.is_frame_erratic(
+            erratic_keypoints, total_valid_keypoints, velocities
+        )
+        
+        # NEW: Update erratic period history for temporal smoothing
+        self._update_erratic_period_history()
         
         # Store current as previous for next iteration
         self.previous_keypoints = current_keypoints.copy()
@@ -2712,10 +2752,103 @@ class VelocityTracker:
         if len(self.velocity_history) > self.smoothing_window:
             self.velocity_history.pop(0)
         
-        return self._smooth_velocities()
+        # NEW: Skip smoothing during erratic periods to avoid contamination
+        if self.is_current_period_erratic():
+            # Return raw velocities without smoothing during erratic periods
+            return velocities
+        else:
+            return self._smooth_velocities()
+
+    def _classify_speed_with_jitter_detection(self, speed, velocity_thresholds):
+        """
+        Classify speed into categories including new 'extreme' category for jitter detection
+        
+        Args:
+            speed: Speed magnitude in pixels/second
+            velocity_thresholds: Dict with 'slow', 'medium', 'fast' thresholds
+            
+        Returns:
+            tuple: (speed_category, is_erratic)
+        """
+        # NEW: Calculate extreme threshold for jitter detection
+        extreme_threshold = self.jitter_detector.get_extreme_threshold(velocity_thresholds['fast'])
+        
+        if speed < velocity_thresholds['slow']:
+            return 'slow', False
+        elif speed < velocity_thresholds['medium']:
+            return 'medium', False
+        elif speed < velocity_thresholds['fast']:
+            return 'fast', False
+        elif speed < extreme_threshold:
+            return 'very_fast', False  # NEW: Very fast but still plausible human movement
+        else:
+            return 'extreme', True     # NEW: Extreme speeds indicate erratic jitter
+
+    def _update_erratic_period_history(self):
+        """
+        Update the history of erratic period classifications with temporal smoothing
+        """
+        # Add current frame's erratic status
+        self.erratic_period_history.append(self.current_frame_erratic)
+        
+        # Maintain smoothing window
+        if len(self.erratic_period_history) > self.erratic_period_smoothing:
+            self.erratic_period_history.pop(0)
+
+    def is_current_period_erratic(self):
+        """
+        Determine if the current time period should be considered erratic
+        Uses temporal smoothing to avoid false positives from single erratic frames
+        
+        Returns:
+            bool: True if current period is erratic and should pause other calculations
+        """
+        if len(self.erratic_period_history) == 0:
+            return False
+            
+        # Use majority voting over the smoothing window
+        erratic_count = sum(self.erratic_period_history)
+        total_frames = len(self.erratic_period_history)
+        
+        # Consider period erratic if more than 50% of recent frames are erratic
+        return erratic_count > (total_frames * 0.5)
+
+    def get_jitter_status(self):
+        """
+        Get detailed information about current jitter detection status
+        
+        Returns:
+            dict: Comprehensive jitter status information
+        """
+        return {
+            'current_frame_erratic': self.current_frame_erratic,
+            'current_period_erratic': self.is_current_period_erratic(),
+            'erratic_history': self.erratic_period_history.copy(),
+            'jitter_detector_stats': self.jitter_detector.get_detection_stats(),
+            'recommendations': self._get_jitter_recommendations()
+        }
+
+    def _get_jitter_recommendations(self):
+        """
+        Provide recommendations based on jitter detection status
+        """
+        if self.is_current_period_erratic():
+            return [
+                "Pausing motion analysis due to erratic pose estimation",
+                "Check camera stability and lighting conditions", 
+                "Ensure subject is clearly visible and not occluded",
+                "Consider adjusting pose estimation confidence thresholds"
+            ]
+        elif self.current_frame_erratic:
+            return [
+                "Temporary pose estimation instability detected",
+                "Continuing analysis with caution"
+            ]
+        else:
+            return ["Pose estimation stable, all systems operational"]
     
     def _smooth_velocities(self):
-        """Apply smoothing to velocity measurements - ENHANCED VERSION"""
+        """Apply smoothing to velocity measurements - ENHANCED VERSION with jitter awareness"""
         if len(self.velocity_history) < 2:
             return self.velocity_history[-1] if self.velocity_history else {}
         
@@ -2730,17 +2863,22 @@ class VelocityTracker:
             vx_values = []
             vy_values = []
             speed_values = []
-            categories = []  # NEW: Track speed categories for smoothing
+            categories = []
             
+            # NEW: Filter out erratic frames from smoothing calculation
             for frame_velocities in self.velocity_history:
                 if keypoint_name in frame_velocities:
-                    vx_values.append(frame_velocities[keypoint_name]['vx'])
-                    vy_values.append(frame_velocities[keypoint_name]['vy'])
-                    speed_values.append(frame_velocities[keypoint_name]['speed'])
-                    if 'speed_category' in frame_velocities[keypoint_name]:
-                        categories.append(frame_velocities[keypoint_name]['speed_category'])
+                    keypoint_data = frame_velocities[keypoint_name]
+                    
+                    # Skip erratic keypoints in smoothing to avoid contamination
+                    if not keypoint_data.get('is_erratic', False):
+                        vx_values.append(keypoint_data['vx'])
+                        vy_values.append(keypoint_data['vy'])
+                        speed_values.append(keypoint_data['speed'])
+                        if 'speed_category' in keypoint_data:
+                            categories.append(keypoint_data['speed_category'])
             
-            if vx_values:  # Only smooth if we have data
+            if vx_values:  # Only smooth if we have non-erratic data
                 # Find the most recent confidence value and thresholds
                 recent_confidence = 0.0
                 recent_thresholds = {'slow': 50, 'medium': 150, 'fast': 300}  # fallback
@@ -2755,27 +2893,225 @@ class VelocityTracker:
                 # Smooth the speed and reclassify
                 smoothed_speed = np.mean(speed_values)
                 
-                # Classify smoothed speed
-                if smoothed_speed < recent_thresholds['slow']:
-                    smoothed_category = 'slow'
-                elif smoothed_speed < recent_thresholds['medium']:
-                    smoothed_category = 'medium'
-                else:
-                    smoothed_category = 'fast'
+                # Classify smoothed speed (should not be extreme after filtering)
+                smoothed_category, _ = self._classify_speed_with_jitter_detection(
+                    smoothed_speed, recent_thresholds
+                )
                 
                 smoothed[keypoint_name] = {
                     'vx': np.mean(vx_values),
                     'vy': np.mean(vy_values),
                     'speed': smoothed_speed,
                     'speed_category': smoothed_category,
+                    'is_erratic': False,  # Smoothed values should not be erratic
                     'confidence': recent_confidence,
                     'thresholds': recent_thresholds
                 }
         
         return smoothed
+
+
+class ErraticJitterDetector:
+    """
+    Dedicated class for detecting erratic jitters in pose estimation
     
+    This class implements sophisticated logic to distinguish between:
+    1. Normal human movement (even fast movements)
+    2. Erratic pose estimation artifacts that create impossible motions
+    """
+    
+    def __init__(self, extreme_multiplier=5.0, jitter_window=3, keypoint_threshold=0.3, temporal_smoothing=3):
+        """
+        Initialize the erratic jitter detector
+        
+        Args:
+            extreme_multiplier: Multiplier for fast threshold to create extreme threshold
+            jitter_window: Number of frames to analyze for jitter patterns
+            keypoint_threshold: Fraction of keypoints that must be erratic to flag frame
+            temporal_smoothing: Number of frames for temporal smoothing of detections
+        """
+        self.extreme_multiplier = extreme_multiplier
+        self.jitter_window = jitter_window
+        self.keypoint_threshold = keypoint_threshold
+        self.temporal_smoothing = temporal_smoothing
+        
+        # Track detection statistics
+        self.total_frames_processed = 0
+        self.erratic_frames_detected = 0
+        self.erratic_keypoint_history = []  # Track which keypoints are frequently erratic
+        
+    def get_extreme_threshold(self, fast_threshold):
+        """
+        Calculate the extreme speed threshold above which motion is considered erratic
+        
+        Args:
+            fast_threshold: The current adaptive 'fast' threshold in pixels/second
+            
+        Returns:
+            float: Extreme threshold for erratic motion detection
+        """
+        return fast_threshold * self.extreme_multiplier
+        
+    def is_frame_erratic(self, erratic_keypoints, total_valid_keypoints, velocities):
+        """
+        Determine if the current frame contains erratic motion
+        
+        This function implements multiple checks:
+        1. Percentage of keypoints with extreme speeds
+        2. Spatial consistency (nearby keypoints should move similarly)
+        3. Temporal consistency (dramatic changes from previous frames)
+        
+        Args:
+            erratic_keypoints: List of keypoint names flagged as erratic
+            total_valid_keypoints: Total number of valid keypoints in frame
+            velocities: Dict of all velocity data for the frame
+            
+        Returns:
+            bool: True if frame should be classified as erratic
+        """
+        self.total_frames_processed += 1
+        
+        if total_valid_keypoints == 0:
+            return False  # Can't determine without keypoints
+        
+        # Check 1: Percentage threshold
+        erratic_percentage = len(erratic_keypoints) / total_valid_keypoints
+        percentage_test = erratic_percentage >= self.keypoint_threshold
+        
+        # Check 2: Spatial consistency test
+        spatial_test = self._check_spatial_consistency(erratic_keypoints, velocities)
+        
+        # Check 3: Temporal pattern test (requires history)
+        temporal_test = self._check_temporal_patterns(erratic_keypoints)
+        
+        # Frame is erratic if it fails multiple tests
+        is_erratic = percentage_test and (spatial_test or temporal_test)
+        
+        if is_erratic:
+            self.erratic_frames_detected += 1
+            
+        # Update erratic keypoint history for temporal analysis
+        self._update_keypoint_history(erratic_keypoints)
+        
+        return is_erratic
+    
+    def _check_spatial_consistency(self, erratic_keypoints, velocities):
+        """
+        Check if erratic keypoints are spatially clustered (indicating real motion)
+        or scattered (indicating pose estimation artifacts)
+        
+        Args:
+            erratic_keypoints: List of keypoint names flagged as erratic
+            velocities: Dict of velocity data
+            
+        Returns:
+            bool: True if spatial pattern suggests erratic artifacts
+        """
+        if len(erratic_keypoints) < 2:
+            return False
+            
+        # Define spatial groups of keypoints that should move together
+        spatial_groups = {
+            'head': ['nose', 'left_eye', 'right_eye', 'left_ear', 'right_ear'],
+            'torso': ['neck', 'chest', 'mid_spine', 'lower_spine'],
+            'left_arm': ['left_shoulder', 'left_elbow', 'left_wrist'],
+            'right_arm': ['right_shoulder', 'right_elbow', 'right_wrist'],
+            'left_leg': ['left_hip', 'left_knee', 'left_ankle', 'left_toes'],
+            'right_leg': ['right_hip', 'right_knee', 'right_ankle', 'right_toes']
+        }
+        
+        # Count erratic keypoints per group
+        group_erratic_counts = {group: 0 for group in spatial_groups}
+        total_group_keypoints = {group: 0 for group in spatial_groups}
+        
+        for group, keypoints_in_group in spatial_groups.items():
+            for keypoint in keypoints_in_group:
+                if keypoint in velocities:
+                    total_group_keypoints[group] += 1
+                    if keypoint in erratic_keypoints:
+                        group_erratic_counts[group] += 1
+        
+        # Check if erratic keypoints are scattered across groups (bad sign)
+        groups_with_erratic = sum(1 for count in group_erratic_counts.values() if count > 0)
+        groups_with_keypoints = sum(1 for count in total_group_keypoints.values() if count > 0)
+        
+        if groups_with_keypoints == 0:
+            return False
+            
+        # If erratic keypoints are in >75% of active groups, likely pose estimation error
+        scatter_ratio = groups_with_erratic / groups_with_keypoints
+        return scatter_ratio > 0.75
+    
+    def _check_temporal_patterns(self, erratic_keypoints):
+        """
+        Check temporal patterns to distinguish between consistent motion and jitter
+        
+        Args:
+            erratic_keypoints: Current frame's erratic keypoints
+            
+        Returns:
+            bool: True if temporal pattern suggests erratic artifacts
+        """
+        if len(self.erratic_keypoint_history) < 2:
+            return False
+            
+        # Look for keypoints that are frequently erratic (jitter pattern)
+        frequent_erratic_keypoints = []
+        
+        for keypoint in erratic_keypoints:
+            # Count how often this keypoint was erratic in recent history
+            erratic_count = sum(1 for frame in self.erratic_keypoint_history 
+                              if keypoint in frame)
+            
+            # If keypoint is erratic in >60% of recent frames, it's likely jitter
+            if erratic_count > len(self.erratic_keypoint_history) * 0.6:
+                frequent_erratic_keypoints.append(keypoint)
+        
+        # If many keypoints show jitter patterns, frame is likely erratic
+        return len(frequent_erratic_keypoints) > len(erratic_keypoints) * 0.4
+    
+    def _update_keypoint_history(self, erratic_keypoints):
+        """Update history of erratic keypoints for temporal analysis"""
+        self.erratic_keypoint_history.append(set(erratic_keypoints))
+        
+        # Maintain history window
+        if len(self.erratic_keypoint_history) > self.jitter_window:
+            self.erratic_keypoint_history.pop(0)
+    
+    def get_detection_stats(self):
+        """
+        Get statistics about jitter detection performance
+        
+        Returns:
+            dict: Detection statistics and diagnostics
+        """
+        erratic_rate = (self.erratic_frames_detected / self.total_frames_processed 
+                       if self.total_frames_processed > 0 else 0)
+        
+        # Analyze most problematic keypoints
+        keypoint_problem_counts = {}
+        for frame_erratic_keypoints in self.erratic_keypoint_history:
+            for keypoint in frame_erratic_keypoints:
+                keypoint_problem_counts[keypoint] = keypoint_problem_counts.get(keypoint, 0) + 1
+        
+        most_problematic = sorted(keypoint_problem_counts.items(), 
+                                key=lambda x: x[1], reverse=True)[:5]
+        
+        return {
+            'total_frames': self.total_frames_processed,
+            'erratic_frames': self.erratic_frames_detected,
+            'erratic_rate': erratic_rate,
+            'most_problematic_keypoints': most_problematic,
+            'detection_settings': {
+                'extreme_multiplier': self.extreme_multiplier,
+                'keypoint_threshold': self.keypoint_threshold,
+                'jitter_window': self.jitter_window
+            }
+        }
+
+
 class BodyProportionCalculator:
-    """Calculate body proportions for adaptive velocity scaling"""
+    """Calculate body proportions for adaptive velocity scaling - ENHANCED with extreme thresholds"""
     
     def __init__(self):
         self.shoulder_elbow_distances = []
@@ -2788,17 +3124,7 @@ class BodyProportionCalculator:
         return np.sqrt((point1[0] - point2[0])**2 + (point1[1] - point2[1])**2)
     
     def update_body_proportions(self, keypoints, confidences, confidence_threshold=0.3):
-        """
-        Calculate current body proportions using shoulder-elbow and hip-knee distances
-        
-        Args:
-            keypoints: Array of keypoint coordinates [24, 2]
-            confidences: Array of confidence scores [24]
-            confidence_threshold: Minimum confidence for valid measurements
-        
-        Returns:
-            dict: Current body measurements and reference scale
-        """
+        """Calculate current body proportions - same as before"""
         measurements = {}
         
         # Keypoint indices for reference:
@@ -2865,18 +3191,7 @@ class BodyProportionCalculator:
         return measurements
     
     def _calculate_reference_scale(self):
-        """
-        Calculate a reference scale based on smoothed body measurements
-        
-        The reference scale combines shoulder-elbow and hip-knee measurements
-        to create a robust body size indicator that adapts to:
-        - Different video resolutions
-        - Different person sizes  
-        - Different distances from camera
-        
-        Returns:
-            float: Reference scale in pixels, or None if insufficient data
-        """
+        """Calculate a reference scale based on smoothed body measurements - same as before"""
         scale_components = []
         
         # Use smoothed shoulder-elbow distance
@@ -2893,7 +3208,6 @@ class BodyProportionCalculator:
             return None
         
         # Combine measurements with weighted average
-        # Hip-knee tends to be more stable, so weight it higher
         if len(scale_components) == 2:  # Both measurements available
             reference_scale = (scale_components[0] * 0.4 + scale_components[1] * 0.6)
         else:  # Only one measurement available
@@ -2901,17 +3215,10 @@ class BodyProportionCalculator:
         
         return reference_scale
     
-    def get_velocity_thresholds(self, base_slow=0.45, base_medium=2.15, base_fast=5):
+    def get_velocity_thresholds(self, base_slow=0.45, base_medium=2.15, base_fast=3.25):
         """
         Calculate adaptive velocity thresholds based on current body scale
-        
-        Args:
-            base_slow: Base threshold for slow movement (relative to body scale)
-            base_medium: Base threshold for medium movement (relative to body scale)  
-            base_fast: Base threshold for fast movement (relative to body scale)
-        
-        Returns:
-            dict: Adaptive thresholds in pixels/second
+        SAME AS BEFORE - the extreme threshold is calculated by ErraticJitterDetector
         """
         if self.reference_scale is None:
             # Fallback to default pixel-based thresholds
@@ -2929,8 +3236,11 @@ class BodyProportionCalculator:
         }
 
 
-def velocity_info_box(image, velocities, body_measurements=None, position_offset=(200, 10)):
-    """Display velocity information on image with adaptive scaling info"""
+def velocity_info_box(image, velocities, body_measurements=None, jitter_status=None, position_offset=(200, 10)):
+    """
+    Display velocity information on image with adaptive scaling info and jitter detection status
+    ENHANCED: Now shows jitter detection information
+    """
     x_offset, y_start = position_offset
     y_offset = 12
     y_current = y_start
@@ -2944,7 +3254,23 @@ def velocity_info_box(image, velocities, body_measurements=None, position_offset
                 cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255, 255, 255), 1)
     y_current += y_offset + 5
     
-    # FIXED: Proper null checking for body measurements
+    # NEW: Display jitter detection status
+    if jitter_status:
+        if jitter_status.get('current_period_erratic', False):
+            status_text = "STATUS: ERRATIC PERIOD - PAUSED"
+            status_color = (0, 0, 255)  # Red
+        elif jitter_status.get('current_frame_erratic', False):
+            status_text = "STATUS: Temporary Instability"
+            status_color = (0, 165, 255)  # Orange
+        else:
+            status_text = "STATUS: Stable"
+            status_color = (0, 255, 0)  # Green
+            
+        cv2.putText(image, status_text, (x_offset, y_current), 
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.35, status_color, 1)
+        y_current += y_offset + 3
+    
+    # Display body scale info
     if body_measurements and body_measurements.get('reference_scale') is not None:
         scale_value = body_measurements['reference_scale']
         scale_text = f"Body Scale: {scale_value:.1f}px"
@@ -2957,36 +3283,217 @@ def velocity_info_box(image, velocities, body_measurements=None, position_offset
                 cv2.FONT_HERSHEY_SIMPLEX, 0.3, scale_color, 1)
     y_current += y_offset
     
-    # Display thresholds (get from first velocity entry)
+    # Display thresholds including extreme threshold
     if velocities:
         first_velocity = next(iter(velocities.values()))
         if 'thresholds' in first_velocity:
             thresholds = first_velocity['thresholds']
-            threshold_text = f"Thresholds: S<{thresholds['slow']:.0f} M<{thresholds['medium']:.0f} F>{thresholds['medium']:.0f}"
+            # NEW: Show extreme threshold if jitter_status available
+            if jitter_status and 'jitter_detector_stats' in jitter_status:
+                detector_stats = jitter_status['jitter_detector_stats']
+                extreme_multiplier = detector_stats['detection_settings']['extreme_multiplier']
+                extreme_threshold = thresholds['fast'] * extreme_multiplier
+                threshold_text = f"Thresh: S<{thresholds['slow']:.0f} M<{thresholds['medium']:.0f} F<{thresholds['fast']:.0f} E>{extreme_threshold:.0f}"
+            else:
+                threshold_text = f"Thresholds: S<{thresholds['slow']:.0f} M<{thresholds['medium']:.0f} F>{thresholds['medium']:.0f}"
+            
             cv2.putText(image, threshold_text, (x_offset, y_current), 
                         cv2.FONT_HERSHEY_SIMPLEX, 0.25, (92, 92, 205), 1)
             y_current += y_offset + 3
     
-    # Display keypoint velocities with adaptive color coding
+    # NEW: Skip displaying individual velocities during erratic periods
+    if jitter_status and jitter_status.get('current_period_erratic', False):
+        erratic_text = "Motion analysis paused due to erratic pose estimation"
+        cv2.putText(image, erratic_text, (x_offset, y_current), 
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.3, (0, 0, 255), 1)
+        y_current += y_offset
+        
+        # Show number of erratic keypoints
+        erratic_count = sum(1 for _, velocity in velocities.items() 
+                          if velocity.get('is_erratic', False))
+        erratic_info = f"Erratic keypoints: {erratic_count}/{len(velocities)}"
+        cv2.putText(image, erratic_info, (x_offset, y_current), 
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.3, (0, 100, 255), 1)
+        return  # Exit early during erratic periods
+    
+    # Display keypoint velocities with enhanced color coding
     for i, (keypoint_name, velocity) in enumerate(sorted_velocities):
         speed = velocity['speed']
         category = velocity.get('speed_category', 'unknown')
+        is_erratic = velocity.get('is_erratic', False)
         
-        # Color based on ADAPTIVE category
-        if category == 'slow':
-            color = (113, 204, 46)  # Green
-        elif category == 'medium':
-            color = (226, 173, 93)  # Blue/Orange  
+        # NEW: Enhanced color coding including erratic detection
+        if is_erratic or category == 'extreme':
+            color = (9, 10, 12)         # Black for extreme/erratic
+            category_indicator = 'E'
+        elif category == 'very_fast':
+            color = (126, 99, 255)       # Purple for very fast
+            category_indicator = 'VF'
         elif category == 'fast':
-            color = (60, 76, 231)   # Red
+            color = (60, 76, 231)       # Red-orange for fast
+            category_indicator = 'F'
+        elif category == 'medium':
+            color = (226, 173, 93)      # Blue/Orange for medium
+            category_indicator = 'M'
+        elif category == 'slow':
+            color = (113, 204, 46)      # Green for slow
+            category_indicator = 'S'
         else:
-            color = (128, 128, 128) # Gray for unknown
+            color = (128, 128, 128)     # Gray for unknown
+            category_indicator = '?'
         
-        # Format text with category indicator
-        text = f"{keypoint_name.replace('_', ' ').title()}: {speed:.1f} ({category[0].upper()})"
+        # Format text with enhanced category indicator
+        text = f"{keypoint_name.replace('_', ' ').title()}: {speed:.1f} ({category_indicator})"
         cv2.putText(image, text, (x_offset, y_current), 
                     cv2.FONT_HERSHEY_SIMPLEX, 0.3, color, 1)
         y_current += y_offset
+
+
+# NEW: Utility function to integrate jitter detection into your main processing loop
+def process_frame_with_jitter_detection(velocity_tracker, keypoints, timestamp, confidences, 
+                                       rep_counter=None, confidence_threshold=0.3):
+    """
+    Main processing function that integrates jitter detection with your existing pipeline
+    
+    This function should replace your current frame processing logic
+    
+    Args:
+        velocity_tracker: VelocityTracker instance with jitter detection
+        keypoints: Current frame keypoints
+        timestamp: Current frame timestamp
+        confidences: Keypoint confidence scores
+        rep_counter: RepCounter instance (optional)
+        confidence_threshold: Minimum confidence for valid keypoints
+        
+    Returns:
+        dict: Processing results including jitter status and whether to proceed
+    """
+    # Calculate velocities with integrated jitter detection
+    velocities = velocity_tracker.calculate_velocities(
+        keypoints, timestamp, confidences, confidence_threshold
+    )
+    
+    # Get comprehensive jitter status
+    jitter_status = velocity_tracker.get_jitter_status()
+    
+    # Determine if other functions should process this frame
+    should_process_motion = not velocity_tracker.is_current_period_erratic()
+    
+    # Process other components only if motion is stable
+    processed_data = {
+        'velocities': velocities,
+        'jitter_status': jitter_status,
+        'should_process_motion': should_process_motion,
+        'body_measurements': None,
+        'rpe_analysis': None,
+        'rep_analysis': None
+    }
+    
+    if should_process_motion:
+        # Get body measurements
+        processed_data['body_measurements'] = {
+            'reference_scale': velocity_tracker.body_calculator.reference_scale
+        }
+        
+        # Process rep counting if available
+        if rep_counter is not None:
+            # Only process reps during stable periods
+            try:
+                # Your existing rep counting logic here
+                processed_data['rep_analysis'] = rep_counter.process_frame(keypoints, confidences)
+            except Exception as e:
+                print(f"Rep counting paused due to motion instability: {e}")
+        
+        # Get RPE analysis
+        if rep_counter is not None:
+            processed_data['rpe_analysis'] = velocity_tracker.get_integrated_rpe_analysis(rep_counter)
+    else:
+        # During erratic periods, provide status information
+        processed_data['processing_status'] = 'paused_due_to_jitter'
+        processed_data['recommendations'] = jitter_status['recommendations']
+    
+    return processed_data
+
+
+# NEW: Function to help tune jitter detection parameters
+def tune_jitter_detection_parameters(velocity_tracker, test_data_frames):
+    """
+    Helper function to tune jitter detection parameters based on test data
+    
+    Args:
+        velocity_tracker: VelocityTracker instance
+        test_data_frames: List of test frames with known ground truth
+                         Each frame: {'keypoints': ..., 'timestamp': ..., 'confidences': ..., 'is_erratic': bool}
+    
+    Returns:
+        dict: Recommended parameter settings
+    """
+    results = {
+        'tested_parameters': [],
+        'best_parameters': None,
+        'best_accuracy': 0.0
+    }
+    
+    # Test different parameter combinations
+    extreme_multipliers = [10.0, 15.0, 20.0, 25.0]
+    keypoint_thresholds = [0.4, 0.6, 0.8]
+    
+    for extreme_mult in extreme_multipliers:
+        for keypoint_thresh in keypoint_thresholds:
+            # Create test detector
+            test_detector = ErraticJitterDetector(
+                extreme_multiplier=extreme_mult,
+                keypoint_threshold=keypoint_thresh
+            )
+            
+            # Test on frames
+            correct_predictions = 0
+            total_predictions = 0
+            
+            for frame_data in test_data_frames:
+                # Simulate detection process
+                velocities = velocity_tracker.calculate_velocities(
+                    frame_data['keypoints'], 
+                    frame_data['timestamp'],
+                    frame_data['confidences']
+                )
+                
+                # Count erratic keypoints
+                erratic_keypoints = []
+                total_valid = 0
+                for name, vel_data in velocities.items():
+                    if vel_data['confidence'] > 0.3:
+                        total_valid += 1
+                        if vel_data.get('is_erratic', False):
+                            erratic_keypoints.append(name)
+                
+                # Test detection
+                predicted_erratic = test_detector.is_frame_erratic(
+                    erratic_keypoints, total_valid, velocities
+                )
+                actual_erratic = frame_data['is_erratic']
+                
+                if predicted_erratic == actual_erratic:
+                    correct_predictions += 1
+                total_predictions += 1
+            
+            accuracy = correct_predictions / total_predictions if total_predictions > 0 else 0
+            
+            param_result = {
+                'extreme_multiplier': extreme_mult,
+                'keypoint_threshold': keypoint_thresh,
+                'accuracy': accuracy,
+                'correct': correct_predictions,
+                'total': total_predictions
+            }
+            
+            results['tested_parameters'].append(param_result)
+            
+            if accuracy > results['best_accuracy']:
+                results['best_accuracy'] = accuracy
+                results['best_parameters'] = param_result
+    
+    return results
     
 def calculate_angle(point_a, point_b, point_c, confidence_threshold=0.3, confidences=None):
     if confidences is not None:
@@ -4295,10 +4802,8 @@ def test_on_video():
     print(f"   • Velocity history length: {tracking_status['velocity_history_length']}")
     
     # Get fitness summary (only if tracking started)
-    if tracking_status['tracking_started']:
-        print(velocity_tracker.fitness_scorer.get_summary_report())
-    else:
-        print("\n⚠️ No fitness evaluation performed - ready position was not detected in video")
+
+    print("\n⚠️ No fitness evaluation performed - ready position was not detected in video")
 
 
 
