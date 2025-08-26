@@ -8,7 +8,7 @@ from collections import deque
 # CONFIGURATION - Update these paths
 MODEL_PATH = "C:/Users/Shushant/Documents/GitHub/Ai-Fitness-Coach/testing/models/model-2.pt"  # Your trained model
 TEST_IMAGE = "testing-material/squat-8.jpg"  # Test image path
-TEST_VIDEO = "testing-material/front-bicep-curls.mp4"  # Test video path
+TEST_VIDEO = "testing-material/Side-Curl-Rana.mp4"  # Test video path
 
 # Output directory
 OUTPUT_DIR = Path("runs/fitness_trainer_test")
@@ -350,106 +350,26 @@ class ReadyPositionDetector:
         
         return info
 
-def draw_waiting_for_ready_display(image, ready_status_info, position=(200, 600)):
-    """
-    NEW FUNCTION: Draw display when waiting for ready position
-    
-    Args:
-        image: OpenCV image
-        ready_status_info: Dictionary from fitness_scorer.check_ready_and_start_tracking()
-        position: (x, y) position for display
-    """
-    x, y = position
-    ready_status = ready_status_info.get('ready_status')
-    
-    if not ready_status:
-        return image
-    
-    # Create semi-transparent background
-    overlay = image.copy()
-    cv2.rectangle(overlay, (x-10, y-30), (x+500, y+120), (0, 0, 0), -1)
-    image = cv2.addWeighted(image, 0.7, overlay, 0.3, 0)
-    
-    # Status colors and messages based on ready position status
-    status = ready_status.get('status', 'unknown')
-    
-    if status == 'ready' and ready_status.get('tracking_active'):
-        status_color = (0, 255, 0)  # Green
-        status_text = "🎯 READY - TRACKING WILL START!"
-        instruction_text = "Excellent! Begin your exercise now."
-    elif status == 'stabilizing':
-        status_color = (0, 255, 255)  # Yellow
-        status_text = "⏳ GET READY - Hold Position"
-        instruction_text = "Hold steady in ready position..."
-    elif status == 'wrong_position':
-        status_color = (0, 165, 255)  # Orange
-        status_text = "📍 MOVE TO READY POSITION"
-        instruction_text = "Position arms extended down at sides"
-    elif status == 'unstable':
-        status_color = (60, 76, 231)  # Red
-        status_text = "⚡ TOO MUCH MOVEMENT"
-        instruction_text = "Hold steady - minimize movement"
-    elif status == 'low_confidence':
-        status_color = (128, 128, 128)  # Gray
-        status_text = "📹 IMPROVE CAMERA VIEW"
-        instruction_text = "Ensure you're fully visible and well-lit"
-    else:
-        status_color = (128, 128, 128)  # Gray
-        status_text = f"Status: {status.upper()}"
-        instruction_text = ready_status.get('message', 'Preparing...')
-    
-    # Draw main status
-    cv2.putText(image, status_text, (x, y), 
-                cv2.FONT_HERSHEY_SIMPLEX, 0.8, status_color, 2)
-    
-    # Draw instruction
-    cv2.putText(image, instruction_text, (x, y + 30), 
-                cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
-    
-    # Draw detailed message from ready detector
-    detail_message = ready_status.get('message', '')
-    if detail_message and len(detail_message) < 60:  # Only show if not too long
-        cv2.putText(image, detail_message, (x, y + 55), 
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.4, (200, 200, 200), 1)
-    
-    # Draw progress bar for stabilizing
-    if status == 'stabilizing':
-        progress = ready_status.get('stability_progress', 0)
-        bar_width = 300
-        bar_height = 10
-        bar_x = x
-        bar_y = y + 80
-        
-        # Background bar
-        cv2.rectangle(image, (bar_x, bar_y), (bar_x + bar_width, bar_y + bar_height), (64, 64, 64), -1)
-        
-        # Progress bar
-        progress_width = int((progress / 100) * bar_width)
-        cv2.rectangle(image, (bar_x, bar_y), (bar_x + progress_width, bar_y + bar_height), status_color, -1)
-        
-        # Progress text
-        cv2.putText(image, f"{progress:.0f}% Ready", (bar_x + bar_width + 15, bar_y + 8), 
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.4, status_color, 1)
-    
-    # Show preparation frame count
-    prep_frames = ready_status_info.get('preparation_frames', 0)
-    cv2.putText(image, f"Preparation frames: {prep_frames}", (x, y + 105), 
-                cv2.FONT_HERSHEY_SIMPLEX, 0.4, (150, 150, 150), 1)
-    
-    return image
+
 
 class IntegratedRPECalculator:
     """
     Integrated RPE Calculator that uses data from other system components
     instead of duplicating their functionality
+    MODIFIED: Removed jitter pause functionality - RPE continues during jitters
     """
     
+     
     def __init__(self, exercise_type="dumbell-curl"):
         self.exercise_type = exercise_type
         
         # NEW: Add ready position detector
         self.ready_detector = ReadyPositionDetector(exercise_type)
         self.tracking_started = False  # Flag to track if we've started actual RPE tracking
+        
+        # REMOVED: Jitter pause integration - RPE will continue during jitters
+        # self.jitter_pause_system = None  
+        # self.paused_due_to_jitter = False
         
         # RPE calculation weights - focusing on what matters most
         self.rpe_weights = {
@@ -479,16 +399,25 @@ class IntegratedRPECalculator:
         
         print(f"Integrated RPE Calculator initialized for {exercise_type}")
         print("Waiting for ready position before starting RPE tracking...")
+        print("RPE calculation will continue during motion jitters (no pause)")
+    
+    def set_jitter_pause_system(self, jitter_pause_system):
+        """Set reference to the jitter pause system - DISABLED for RPE"""
+        # MODIFIED: Accept the reference but don't use it for pausing
+        # This maintains compatibility with existing code
+        print("RPE Calculator: Jitter pause system connected but DISABLED for RPE calculations")
     
     def update_rpe_data(self, rep_counter_data, fitness_scorer_data, velocity_data, 
                        body_measurements=None, angles=None, keypoints=None, 
                        confidences=None, frame_count=None):
         """
         Update RPE calculation with data from integrated systems
-        ENHANCED: Now waits for ready position before tracking
+        MODIFIED: Removed jitter pause checks - always processes data
         """
         try:
-            # NEW: Check ready position first if not already tracking
+            # REMOVED: Jitter status checking - RPE always processes
+            
+            # Check ready position first if not already tracking
             if not self.tracking_started:
                 if angles is not None and keypoints is not None and confidences is not None and frame_count is not None:
                     ready_status = self.ready_detector.check_ready_position(
@@ -510,7 +439,7 @@ class IntegratedRPECalculator:
                     print("RPE: Waiting for complete pose data to check ready position...")
                     return
             
-            # EXISTING CODE: Continue with normal RPE data collection only if tracking started
+            # Continue with normal RPE data collection (no jitter pause)
             current_time = cv2.getTickCount() / cv2.getTickFrequency()
             current_rep_count = rep_counter_data.get('total_reps', 0)
             
@@ -530,7 +459,7 @@ class IntegratedRPECalculator:
             if velocity_data and current_rep_count >= 0:
                 self.current_rep_velocities.append({
                     'time': current_time,
-                    'data': velocity_data.copy(),
+                    'data': velocity_data.copy() if isinstance(velocity_data, dict) else {},
                     'rep_count': current_rep_count
                 })
                 
@@ -551,9 +480,10 @@ class IntegratedRPECalculator:
             
             # Store velocity data
             if velocity_data:
+                vel_data_to_store = velocity_data.copy() if isinstance(velocity_data, dict) else {}
                 self.velocity_history.append({
                     'time': current_time,
-                    'data': velocity_data.copy(),
+                    'data': vel_data_to_store,
                     'rep_count': current_rep_count,
                     'body_scale': body_measurements.get('reference_scale') if body_measurements else None
                 })
@@ -585,10 +515,12 @@ class IntegratedRPECalculator:
     def calculate_rpe(self, rep_counter, fitness_scorer, velocity_tracker):
         """
         Calculate RPE using data from integrated system components
-        ENHANCED: Only calculates RPE after ready position detected
+        MODIFIED: Removed jitter pause - always calculates RPE
         """
         try:
-            # NEW: Check if tracking has started
+            # REMOVED: Jitter pause checking - always calculate RPE
+            
+            # Check if tracking has started
             if not self.tracking_started:
                 return {
                     'rpe': 1.0,  # Minimal RPE while waiting
@@ -605,7 +537,7 @@ class IntegratedRPECalculator:
                     }
                 }
             
-            # EXISTING CODE: Continue with normal RPE calculation
+            # Continue with normal RPE calculation
             rep_data = rep_counter.get_rep_summary()
             rom_data = rep_counter.get_range_of_motion_data()
             form_data = fitness_scorer.get_score_display()
@@ -641,15 +573,16 @@ class IntegratedRPECalculator:
                     'form_score': form_data['points'],
                     'rom_consistency': rom_data.get('rom_consistency', 0),
                     'velocity_data_points': len(current_velocities),
-                    'tracking_active': self.tracking_started
+                    'tracking_active': self.tracking_started,
+                    'jitter_status': 'rpe_continues_during_jitter'  # MODIFIED: Indicate RPE doesn't pause
                 }
             }
             
         except Exception as e:
             print(f"Integrated RPE calculation error: {e}")
             return self._get_error_result(str(e))
-        
 
+    # [Rest of the methods remain the same but with jitter pause checks removed]
     def _calculate_rep_average_velocity(self):
         """Calculate average velocity for the current rep based on stored velocity data"""
         if not self.current_rep_velocities:
@@ -681,10 +614,7 @@ class IntegratedRPECalculator:
         return joint_averages if joint_averages else None
     
     def _analyze_velocity_decay_integrated(self, velocity_history, body_scale):
-        """
-        Analyze velocity decay using rep-based average velocities
-        MODIFIED: Now compares early reps to ONLY the most recent completed rep
-        """
+        """Analyze velocity decay - MODIFIED: No longer skips during jitter"""
         try:
             # Need at least 2 completed reps to compare
             if len(self.rep_velocity_averages) < 2:
@@ -699,12 +629,12 @@ class IntegratedRPECalculator:
             if num_reps < 3:
                 # With only 2 reps, compare first vs second
                 early_reps = [self.rep_velocity_averages[0]]
-                recent_rep = [self.rep_velocity_averages[1]]  # Still use list format for consistency
+                recent_rep = [self.rep_velocity_averages[1]]
             else:
                 # With 3+ reps, compare early third vs ONLY the most recent rep
-                split_point = max(1, num_reps // 3)  # At least 1 rep in early group
+                split_point = max(1, num_reps // 3)
                 early_reps = self.rep_velocity_averages[:split_point]
-                recent_rep = [self.rep_velocity_averages[-1]]  # CHANGED: Only the last rep
+                recent_rep = [self.rep_velocity_averages[-1]]
             
             velocity_declines = []
             
@@ -718,7 +648,7 @@ class IntegratedRPECalculator:
                 
                 # Get velocity for the single most recent rep
                 recent_speeds = []
-                for rep_data in recent_rep:  # This loop will only run once now
+                for rep_data in recent_rep:
                     avg_velocities = rep_data['average_velocities']
                     if joint in avg_velocities:
                         recent_speeds.append(avg_velocities[joint]['average_speed'])
@@ -726,7 +656,7 @@ class IntegratedRPECalculator:
                 # Compare early average vs most recent rep average for this joint
                 if early_speeds and recent_speeds:
                     early_avg = np.mean(early_speeds)
-                    recent_avg = recent_speeds[0]  # Since there's only one recent rep now
+                    recent_avg = recent_speeds[0]
                     
                     if early_avg > 0:
                         # Calculate percentage decline (positive = getting slower)
@@ -737,7 +667,7 @@ class IntegratedRPECalculator:
                             'early_avg': early_avg,
                             'recent_avg': recent_avg,
                             'early_reps': len(early_speeds),
-                            'recent_reps': 1  # Always 1 now since we only use the most recent rep
+                            'recent_reps': 1
                         })
                         
                         print(f"Velocity analysis - {joint}: {early_avg:.1f} -> {recent_avg:.1f} ({velocity_decline:+.1f}% change)")
@@ -750,30 +680,26 @@ class IntegratedRPECalculator:
             avg_velocity_decline = np.mean(decline_percentages)
             
             # Convert velocity decline to RPE scale
-            # Positive decline = getting slower = higher fatigue = higher RPE
-            # Negative decline = getting faster = lower fatigue = lower RPE
-            
-            if avg_velocity_decline <= -10:  # Getting significantly faster (unusual)
+            if avg_velocity_decline <= -10:
                 rpe_score = 2.0
-            elif avg_velocity_decline <= -5:  # Getting slightly faster
+            elif avg_velocity_decline <= -5:
                 rpe_score = 2.5                
-            elif avg_velocity_decline <= 0:  # Maintaining or slightly faster
+            elif avg_velocity_decline <= 0:
                 rpe_score = 3.0
-            elif avg_velocity_decline <= 5:  # Slight slowdown
+            elif avg_velocity_decline <= 5:
                 rpe_score = 5.0
-            elif avg_velocity_decline <= 10:  # Moderate slowdown
+            elif avg_velocity_decline <= 10:
                 rpe_score = 6.0
-            elif avg_velocity_decline <= 15:  # Noticeable slowdown
+            elif avg_velocity_decline <= 15:
                 rpe_score = 7.0
-            elif avg_velocity_decline <= 20:  # Significant slowdown
+            elif avg_velocity_decline <= 20:
                 rpe_score = 8.0
-            elif avg_velocity_decline <= 30:  # Major slowdown
+            elif avg_velocity_decline <= 30:
                 rpe_score = 9.0
-            else:  # Severe slowdown
+            else:
                 rpe_score = 10.0
             
             print(f"Rep-based velocity decay analysis: {avg_velocity_decline:.1f}% decline -> RPE {rpe_score}")
-            print(f"Comparison: Early reps average vs Rep #{num_reps} only")
             
             return rpe_score
                     
@@ -781,19 +707,8 @@ class IntegratedRPECalculator:
             print(f"Error in rep-based velocity decay analysis: {e}")
             return None
 
-    
-    def get_rep_velocity_debug_info(self):
-        """Get debug information about rep-based velocity tracking"""
-        return {
-            'completed_reps_tracked': len(self.rep_velocity_averages),
-            'current_rep_data_points': len(self.current_rep_velocities),
-            'last_completed_rep': self.last_completed_rep,
-            'rep_averages': self.rep_velocity_averages[-5:],  # Last 5 reps
-        }
-
-
     def _analyze_form_degradation_integrated(self, form_data):
-        """Analyze form degradation using FitnessScorer data"""
+        """Analyze form degradation - MODIFIED: No longer skips during jitter"""
         try:
             if not form_data or 'percentage' not in form_data:
                 return None
@@ -802,7 +717,7 @@ class IntegratedRPECalculator:
             
             # Convert form percentage to RPE scale (inverse relationship)
             if current_percentage >= 90:
-                return 3.0  # Excellent form = low RPE
+                return 3.0
             elif current_percentage >= 80:
                 return 7.0
             elif current_percentage >= 70:
@@ -812,14 +727,14 @@ class IntegratedRPECalculator:
             elif current_percentage >= 50:
                 return 9.5
             else:
-                return 10.0  # Poor form = high RPE
+                return 10.0
                 
         except Exception as e:
             print(f"Error in form degradation analysis: {e}")
             return None
     
     def _analyze_rom_decline_integrated(self, rom_data):
-        """Analyze ROM decline using RepCounter ROM data"""
+        """Analyze ROM decline - MODIFIED: No longer skips during jitter"""
         try:
             if not rom_data or not rom_data.get('rep_data'):
                 return None
@@ -831,13 +746,13 @@ class IntegratedRPECalculator:
             # Compare early vs ONLY the most recent ROM
             total_reps = len(rep_roms)
             early_roms = [rep['range'] for rep in rep_roms[:max(1, total_reps//2)]]
-            most_recent_rom = rep_roms[-1]['range']  # CHANGED: Only the last rep's ROM
+            most_recent_rom = rep_roms[-1]['range']
             
             if not early_roms or most_recent_rom is None:
                 return None
             
             early_avg_rom = np.mean(early_roms)
-            recent_rom = most_recent_rom  # CHANGED: No averaging needed, just the single recent ROM
+            recent_rom = most_recent_rom
             
             if early_avg_rom <= 0:
                 return None
@@ -852,19 +767,19 @@ class IntegratedRPECalculator:
             
             # ROM decline component
             if rom_decline <= 0:
-                base_rpe -= 1.0   #3.0
+                base_rpe -= 1.0
             elif rom_decline <= 5:
-                base_rpe += 1.0   #5.0
+                base_rpe += 1.0
             elif rom_decline <= 10:
-                base_rpe += 2.0   #6.0
+                base_rpe += 2.0
             elif rom_decline <= 20:
-                base_rpe += 3.0   #7.0
+                base_rpe += 3.0
             elif rom_decline <= 30:
-                base_rpe += 4.0   #8.0
+                base_rpe += 4.0
             elif rom_decline <= 40:
-                base_rpe += 5.0   #9.0
+                base_rpe += 5.0
             else:
-                base_rpe += 6.0  #10.0
+                base_rpe += 6.0
             
             # Consistency component
             if consistency >= 80:
@@ -873,7 +788,6 @@ class IntegratedRPECalculator:
                 base_rpe += 1.0
             
             print(f"ROM analysis: Early avg {early_avg_rom:.1f} vs Most recent rep {recent_rom:.1f} ({rom_decline:+.1f}% change)")
-            print(f"Comparison: Early reps average vs Rep #{total_reps} only")
             
             return max(3.0, min(10.0, base_rpe))
             
@@ -882,7 +796,7 @@ class IntegratedRPECalculator:
             return None
     
     def _analyze_rep_progression_integrated(self, rep_data):
-        """Analyze rep progression using RepCounter data"""
+        """Analyze rep progression - MODIFIED: Continues during jitter (rep count is stable)"""
         try:
             if not rep_data:
                 return None
@@ -916,6 +830,7 @@ class IntegratedRPECalculator:
             print(f"Error in rep progression analysis: {e}")
             return None
     
+    # [Include remaining helper methods...]
     def _calculate_weighted_rpe(self, components):
         """Calculate weighted RPE from components"""
         weighted_rpe = 0
@@ -928,7 +843,7 @@ class IntegratedRPECalculator:
                 total_weight += weight
         
         if total_weight == 0:
-            return 5.0  # Default moderate RPE
+            return 5.0
         
         return weighted_rpe / total_weight
     
@@ -1049,14 +964,14 @@ class IntegratedRPECalculator:
             'fatigue_indicators': [],
             'data_sources': {}
         }
-    
 
     def get_ready_position_status(self):
         """Get current ready position detector status"""
         return {
             'tracking_started': self.tracking_started,
             'ready_detector_active': self.ready_detector.tracking_active,
-            'current_stability_progress': getattr(self.ready_detector, 'stability_counter', 0)
+            'current_stability_progress': getattr(self.ready_detector, 'stability_counter', 0),
+            'jitter_status': 'rpe_never_pauses'  # MODIFIED: RPE doesn't pause for jitter
         }
     
     def force_start_tracking(self):
@@ -1065,14 +980,15 @@ class IntegratedRPECalculator:
         self.ready_detector.tracking_active = True
         print("⚡ RPE TRACKING FORCE STARTED")
 
-
     def reset_rpe_data(self):
         """Reset RPE calculation data"""
-        # NEW: Reset ready position detector
+        # Reset ready position detector
         self.ready_detector.reset()
         self.tracking_started = False
         
-        # EXISTING: Reset RPE data
+        # REMOVED: Reset jitter state - not needed
+        
+        # Reset RPE data
         self.baseline_form_score = None
         self.baseline_velocity_data = {}
         self.baseline_rom_data = None
@@ -1088,174 +1004,214 @@ class IntegratedRPECalculator:
         print("Integrated RPE data reset - waiting for ready position")
 
 
-def draw_integrated_rpe_display(image, velocity_tracker, rep_counter, position=(50, 600)):
-    """
-    Draw integrated RPE display using data from all system components
-    """
-    try:
-        # Get integrated RPE analysis
-        rpe_result = velocity_tracker.get_integrated_rpe_analysis(rep_counter)
-        
-        x, y = position
-        
-        # Create background
-        overlay = image.copy()
-        cv2.rectangle(overlay, (x-5, y-25), (x+580, y+280), (0, 0, 0), -1)
-        image = cv2.addWeighted(image, 0.7, overlay, 0.3, 0)
-        
-        # Title
-        cv2.putText(image, "INTEGRATED RPE ANALYSIS", (x, y), 
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
-        
-        # RPE Score with color coding
-        rpe_score = rpe_result.get('rpe', 5.0)
-        if rpe_score <= 4:
-            rpe_color = (0, 255, 0)  # Green
-        elif rpe_score <= 6:
-            rpe_color = (0, 255, 255)  # Yellow
-        elif rpe_score <= 8:
-            rpe_color = (0, 165, 255)  # Orange
-        else:
-            rpe_color = (0, 0, 255)  # Red
-        
-        cv2.putText(image, f"RPE: {rpe_score}/10", (x, y + 40), 
-                    cv2.FONT_HERSHEY_SIMPLEX, 1.0, rpe_color, 2)
-        
-        # Confidence and data sources
-        confidence = rpe_result.get('confidence', 'low')
-        confidence_colors = {'high': (0, 255, 0), 'medium': (0, 255, 255), 
-                           'low': (0, 0, 255), 'error': (128, 128, 128)}
-        confidence_color = confidence_colors.get(confidence, (128, 128, 128))
-        
-        cv2.putText(image, f"Confidence: {confidence.title()}", (x, y + 75), 
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, confidence_color, 1)
-        
-        # Data sources
-        data_sources = rpe_result.get('data_sources', {})
-        cv2.putText(image, f"Reps: {data_sources.get('reps', 0)} | Form: {data_sources.get('form_score', 0):.0f}%", 
-                    (x, y + 100), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (200, 200, 200), 1)
-        
-        cv2.putText(image, f"ROM Consistency: {data_sources.get('rom_consistency', 0):.1f}%", 
-                    (x, y + 125), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (200, 200, 200), 1)
-        
-        # RPE Breakdown
-        breakdown = rpe_result.get('breakdown', {})
-        y_breakdown = y + 150
-        cv2.putText(image, "Component Analysis:", (x, y_breakdown), 
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.45, (255, 255, 100), 1)
-        
-        for i, (component, score) in enumerate(breakdown.items()):
-            if score is not None:
-                component_name = component.replace('_', ' ').title()
-                score_color = (0, 255, 0) if score <= 5 else (0, 165, 255) if score <= 7 else (0, 0, 255)
-                cv2.putText(image, f"{component_name}: {score:.1f}", 
-                           (x + 10, y_breakdown + 20 + (i * 15)), 
-                           cv2.FONT_HERSHEY_SIMPLEX, 0.35, score_color, 1)
-        
-        # Interpretation
-        interpretation = rpe_result.get('interpretation', 'Moderate effort')
-        cv2.putText(image, interpretation, (x, y + 240), 
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.45, (255, 255, 255), 1)
-        
-        # Fatigue indicators
-        fatigue_indicators = rpe_result.get('fatigue_indicators', [])
-        if fatigue_indicators:
-            cv2.putText(image, f"Fatigue: {', '.join(fatigue_indicators[:2])}", (x, y + 265), 
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.35, (255, 100, 100), 1)
-        
-        return image
-        
-    except Exception as e:
-        print(f"Error in integrated RPE display: {e}")
-        cv2.putText(image, f"RPE Display Error: {str(e)}", position, 
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 1)
-        return image
+
+
 
 
 class RepCounter:
     """
     Counts repetitions by tracking eccentric and concentric phases of movement
-    Supports different exercise types with configurable angle thresholds
+    ENHANCED: Now uses exercise-specific angles for targeted jitter detection
+    ENHANCED: Added minimum frames between half reps validation
     """
-    
+
     def __init__(self, exercise_type="dumbell-curl", ready_position_detector=None):
         self.exercise_type = exercise_type
         self.rep_count = 0
-        self.half_rep_count = 0  # Total half reps (eccentric + concentric)
-        
-        # NEW: Ready position integration
+        self.half_rep_count = 1 #change accordingly
+
+        # Ready position integration
         self.ready_position_detector = ready_position_detector
-        self.tracking_enabled = False  # NEW: Only count when this is True
-        
+        self.tracking_enabled = False
+
+        # Jitter pause integration
+        self.jitter_pause_system = None  # Connected externally
+        self.paused_due_to_jitter = False
+
         # Phase tracking
-        self.current_phase = "neutral"  # "neutral", "eccentric", "concentric"
+        self.current_phase = "neutral"
         self.previous_phase = "neutral"
-        
-        # Angle history for smoothing and change detection
+
+        # Angle history for smoothing
         self.angle_history = []
         self.history_window = 5
-        
-        # NEW: Angle change tracking
+
+        # Angle change tracking
         self.previous_smoothed_angle = None
-        self.angle_direction = None  # "increasing", "decreasing", None
+        self.angle_direction = None
         self.previous_direction = None
-        
-        # NEW: Range of motion tracking
+
+        # Range of motion tracking
         self.current_max_angle = None
         self.current_min_angle = None
-        self.rom_data = []  # List of (min_angle, max_angle) tuples for each rep
-        
-        # NEW: Direction confirmation to avoid noise
+        self.rom_data = []
+
+        # Direction confirmation
         self.direction_confirmation_count = 0
-        self.min_direction_confirmation = 4
-        self.min_angle_change_threshold = 1  # Minimum angle change to consider significant
-        
+        self.min_direction_confirmation = 3.5
+        self.min_angle_change_threshold = 0.82
+
         # Exercise-specific configurations
         self.exercise_configs = {
             "dumbell-curl": {
-                "primary_angle": "left_elbow",  # Main angle to track
-                "secondary_angle": "right_elbow",  # Secondary angle for validation
-                "start_threshold": 170,  # Starting position (extended) - kept for reference
-                "end_threshold": 60,     # End position (flexed) - kept for reference
-                "hysteresis": 10,        # Prevents oscillation
-                "require_both_arms": True,  # Both arms must move together
-                # NEW: Define which direction is eccentric vs concentric
-                "eccentric_direction": "increasing",  # For curls, eccentric is angle decreasing (flexing)
-                "concentric_direction": "decreasing"   # For curls, concentric is angle increasing (extending)
+                "primary_angle": "left_elbow",
+                "secondary_angle": "right_elbow",
+                # NEW: Exercise-specific angles for jitter detection
+                "jitter_detection_angles": ["left_elbow", "right_elbow", "left_shoulder", "right_shoulder"],
+                "jitter_angle_thresholds": {
+                    "left_elbow": 25.0,      # Max degrees change per frame for elbows
+                    "right_elbow": 25.0,
+                    "left_shoulder": 15.0,   # Shoulders should be more stable
+                    "right_shoulder": 15.0
+                },
+                "start_threshold": 170,
+                "end_threshold": 60,
+                "hysteresis": 10,
+                "require_both_arms": True,
+                "eccentric_direction": "increasing",
+                "concentric_direction": "decreasing"
             }
         }
-        
-        # Get current exercise config
+
         self.config = self.exercise_configs.get(exercise_type, self.exercise_configs["dumbell-curl"])
-        
+
         # Rep validation
         self.last_rep_frame = 0
-        self.min_frames_between_reps = 15  # Minimum frames between complete reps
+        self.min_frames_between_reps = 4
         
+        # NEW: Half rep validation - prevent rapid false detections
+        self.last_half_rep_frame = 0
+        self.min_frames_between_half_reps = 2  # Minimum frames between half reps (adjustable)
+
+        # NEW: Exercise-specific angle tracking for jitter detection
+        self.previous_exercise_angles = {}
+        self.exercise_angle_change_history = []
+        self.exercise_angle_history_window = 3
+
         print(f"RepCounter initialized for {exercise_type}")
+        print(f"Exercise-specific jitter detection enabled for angles: {self.config['jitter_detection_angles']}")
+        print(f"Half rep validation: minimum {self.min_frames_between_half_reps} frames between half reps")
+        print("Jitter detection will pause rep counting during erratic motion in exercise-relevant joints")
         if ready_position_detector:
             print("Ready position detector integration ENABLED - waiting for ready signal")
-        else:
-            print("WARNING: No ready position detector - counting will start immediately")
-        print(f"Tracking: {self.config['primary_angle']} (direction-based counting)")
-    
-    def update_rep_count(self, angles, frame_count, keypoints=None, confidences=None):
+
+    def set_min_frames_between_half_reps(self, min_frames):
         """
-        Update rep count based on current angles - ENHANCED with ready position integration
+        Set the minimum number of frames required between half reps
         
         Args:
-            angles: Dictionary of current body angles
-            frame_count: Current frame number
-            keypoints: Current keypoint positions (for ready position detection)
-            confidences: Keypoint confidence scores (for ready position detection)
+            min_frames (int): Minimum frames between half reps (recommended: 5-15)
+                             Lower values = more sensitive to rapid movements
+                             Higher values = more conservative, may miss valid reps
+        """
+        if min_frames < 1:
+            print("Warning: min_frames_between_half_reps should be at least 1")
+            min_frames = 1
+        elif min_frames > 30:
+            print("Warning: min_frames_between_half_reps > 30 may be too conservative")
+        
+        self.min_frames_between_half_reps = min_frames
+        print(f"Half rep validation updated: minimum {min_frames} frames between half reps")
+
+    def get_min_frames_between_half_reps(self):
+        """Get the current minimum frames between half reps setting"""
+        return self.min_frames_between_half_reps
+
+    def _is_valid_half_rep_timing(self, frame_count):
+        """
+        Check if enough frames have passed since the last half rep
+        
+        Args:
+            frame_count (int): Current frame number
             
         Returns:
-            dict: Rep counting information and events
+            bool: True if timing is valid for a new half rep
         """
-        # NEW: Check ready position status first
+        frames_since_last = frame_count - self.last_half_rep_frame
+        is_valid = frames_since_last >= self.min_frames_between_half_reps
+        
+        if not is_valid:
+            print(f"⏱️  Half rep timing check: {frames_since_last}/{self.min_frames_between_half_reps} frames - TOO SOON")
+        else:
+            print(f"✅ Half rep timing check: {frames_since_last} frames since last - VALID")
+        
+        return is_valid
+
+    def set_jitter_pause_system(self, jitter_pause_system):
+        """Set reference to the jitter pause system"""
+        self.jitter_pause_system = jitter_pause_system
+        print("RepCounter: Jitter pause system connected")
+
+    def update_rep_count(self, angles, frame_count, keypoints=None, confidences=None, velocities=None):
+        """
+        Update rep count based on current angles - ENHANCED with exercise-specific jitter integration
+        Uses real velocity data when available, falls back to exercise-specific angle-based detection
+        """
+        # --- 1) ENHANCED Exercise-Specific Jitter Detection ---
+        if self.jitter_pause_system:
+            jitter_detected = False
+            jitter_status = None
+            jitter_method = "none"
+            
+            # Method 1: Use real velocity data for exercise-specific joints (PRIMARY)
+            if velocities and len(velocities) > 0:
+                # Filter velocities to only exercise-specific angles
+                exercise_velocities = self._filter_exercise_specific_velocities(velocities)
+                
+                if exercise_velocities:
+                    print(f"🎯 EXERCISE JITTER CHECK: Using real velocity data for {list(exercise_velocities.keys())}")
+                    jitter_method = "exercise_velocity"
+                    
+                    # Use adaptive thresholds from velocity data or defaults
+                    first_velocity = next(iter(exercise_velocities.values()))
+                    if 'thresholds' in first_velocity:
+                        thresholds = first_velocity['thresholds']
+                        print(f"   Exercise thresholds: Fast={thresholds['fast']:.0f}, Extreme={thresholds['fast']*2:.0f} px/s")
+                    else:
+                        thresholds = {'slow': 50, 'medium': 150, 'fast': 300}
+                        print(f"   Default exercise thresholds: Fast={thresholds['fast']}, Extreme={thresholds['fast']*2} px/s")
+                    
+                    # Use lower extreme multiplier for exercise-specific detection (2x instead of 3x)
+                    jitter_status = self._check_exercise_velocity_jitter(exercise_velocities, thresholds)
+                    jitter_detected = jitter_status['should_pause_functions']
+                    
+                    if jitter_detected:
+                        print(f"⚠️  EXERCISE VELOCITY JITTER: {len(jitter_status.get('extreme_keypoints', []))} exercise joints showing extreme speeds")
+            
+            # Method 2: Exercise-specific angle-based detection (SECONDARY)
+            if not jitter_detected and angles:
+                print("🎯 EXERCISE JITTER CHECK: Using exercise-specific angle analysis")
+                jitter_method = "exercise_angles"
+                
+                jitter_status = self._check_exercise_angle_jitter(angles)
+                jitter_detected = jitter_status['should_pause_functions']
+                
+                if jitter_detected:
+                    print(f"⚠️  EXERCISE ANGLE JITTER: {jitter_status.get('reason', 'Detected')}")
+            
+            # Apply jitter pause if detected by either method
+            if jitter_detected:
+                self.paused_due_to_jitter = True
+                jitter_status['detection_method'] = jitter_method
+                print(f"🛑 REP COUNTING PAUSED - Exercise-specific jitter detected via {jitter_method}")
+                
+                # Store current angles for next frame comparison
+                if angles:
+                    self._update_exercise_angle_history(angles)
+                return self._get_paused_status_dict(jitter_status)
+            else:
+                # No jitter detected
+                if self.paused_due_to_jitter:
+                    print("✅ REP COUNTING RESUMED - Exercise motion stabilized")
+                self.paused_due_to_jitter = False
+        
+        # Store current angles for next frame comparison (always needed for angle-based detection)
+        if angles:
+            self._update_exercise_angle_history(angles)
+        
+        # --- 2) Ready Position Check ---
         ready_status = self._check_ready_position_status(angles, keypoints, confidences, frame_count)
         
-        # If we're not ready to track, return early
         if not self.tracking_enabled:
             return self._get_status_dict_with_ready_info(ready_status)
         
@@ -1265,17 +1221,17 @@ class RepCounter:
         if primary_angle is None:
             return self._get_status_dict_with_ready_info(ready_status)
         
-        # Add angle to history for smoothing
+        # --- 3) Angle Smoothing ---
         self.angle_history.append(primary_angle)
         if len(self.angle_history) > self.history_window:
             self.angle_history.pop(0)
         
-        # Use smoothed angle
         smoothed_angle = sum(self.angle_history) / len(self.angle_history)
         
-        # NEW: Detect angle direction and phase changes
+        # --- 4) Detect Direction Changes and Count Reps ---
         direction_changed, rep_events = self._detect_direction_change(smoothed_angle, frame_count)
         
+        # --- 5) Return Complete Status ---
         result = {
             'total_reps': self.rep_count,
             'half_reps': self.half_rep_count,
@@ -1287,16 +1243,164 @@ class RepCounter:
             'current_min_angle': self.current_min_angle,
             'events': rep_events,
             'direction_changed': direction_changed,
-            # NEW: Add ready position information
             'ready_status': ready_status,
-            'tracking_enabled': self.tracking_enabled
+            'tracking_enabled': self.tracking_enabled,
+            'jitter_paused': self.paused_due_to_jitter,
+            'exercise_jitter_method': jitter_method if jitter_detected else 'none',
+            'monitored_angles': self.config['jitter_detection_angles'],
+            'half_rep_timing_validation': {
+                'min_frames_required': self.min_frames_between_half_reps,
+                'last_half_rep_frame': self.last_half_rep_frame,
+                'current_frame': frame_count
+            }
         }
         
         return result
+
+    def _filter_exercise_specific_velocities(self, velocities):
+        """Filter velocities to only include exercise-relevant joints"""
+        exercise_velocities = {}
+        
+        # Map angle names to velocity keypoint names
+        angle_to_velocity_mapping = {
+            "left_elbow": "left_elbow",
+            "right_elbow": "right_elbow", 
+            "left_shoulder": "left_shoulder",
+            "right_shoulder": "right_shoulder",
+            "left_knee": "left_knee",
+            "right_knee": "right_knee",
+            "left_hip": "left_hip",
+            "right_hip": "right_hip"
+        }
+        
+        for angle_name in self.config['jitter_detection_angles']:
+            velocity_key = angle_to_velocity_mapping.get(angle_name)
+            if velocity_key and velocity_key in velocities:
+                # Only include if not a special key and has valid data
+                if not velocity_key.startswith('_') and isinstance(velocities[velocity_key], dict):
+                    exercise_velocities[velocity_key] = velocities[velocity_key]
+        
+        return exercise_velocities
+
+    def _check_exercise_velocity_jitter(self, exercise_velocities, thresholds):
+        """Check for jitter using exercise-specific velocity data"""
+        # Use more sensitive detection for exercise-specific joints
+        exercise_extreme_threshold = thresholds.get('fast', 300) * 2.0  # 2x instead of 3x
+        extreme_joints = []
+        total_exercise_joints = 0
+        
+        for joint_name, velocity_data in exercise_velocities.items():
+            if velocity_data.get('confidence', 0) > 0.3:
+                total_exercise_joints += 1
+                speed = velocity_data.get('speed', 0)
+                
+                if speed > exercise_extreme_threshold:
+                    extreme_joints.append({
+                        'name': joint_name,
+                        'speed': speed,
+                        'threshold': exercise_extreme_threshold,
+                        'angle_name': joint_name  # For exercise context
+                    })
+        
+        # More sensitive threshold for exercise joints (1 extreme joint instead of 2)
+        min_extreme_exercise_joints = 1
+        should_pause = len(extreme_joints) >= min_extreme_exercise_joints
+        
+        return {
+            'should_pause_functions': should_pause,
+            'reason': 'exercise_velocity_jitter',
+            'extreme_keypoints': extreme_joints,
+            'extreme_threshold': exercise_extreme_threshold,
+            'total_exercise_joints': total_exercise_joints,
+            'detection_specificity': f'exercise_{self.exercise_type}'
+        }
+
+    def _check_exercise_angle_jitter(self, current_angles):
+        """Check for jitter using exercise-specific angle changes"""
+        if not self.previous_exercise_angles:
+            # First frame - just store angles
+            self._update_exercise_angle_history(current_angles)
+            return {'should_pause_functions': False, 'reason': 'first_frame'}
+        
+        extreme_angle_changes = []
+        total_exercise_angles = 0
+        
+        for angle_name in self.config['jitter_detection_angles']:
+            if angle_name in current_angles and angle_name in self.previous_exercise_angles:
+                total_exercise_angles += 1
+                current_angle = current_angles[angle_name]
+                previous_angle = self.previous_exercise_angles[angle_name]
+                
+                angle_change = abs(current_angle - previous_angle)
+                threshold = self.config['jitter_angle_thresholds'].get(angle_name, 15.0)
+                
+                if angle_change > threshold:
+                    extreme_angle_changes.append({
+                        'angle_name': angle_name,
+                        'change': angle_change,
+                        'threshold': threshold,
+                        'current': current_angle,
+                        'previous': previous_angle
+                    })
+        
+        # Check if too many exercise angles changed drastically
+        if total_exercise_angles > 0:
+            extreme_ratio = len(extreme_angle_changes) / total_exercise_angles
+            
+            # More sensitive for exercise angles - 40% threshold instead of 50%
+            if extreme_ratio > 0.4:
+                return {
+                    'should_pause_functions': True,
+                    'reason': f'exercise_angle_changes_{self.exercise_type}',
+                    'extreme_changes': extreme_angle_changes,
+                    'total_angles': total_exercise_angles,
+                    'extreme_ratio': extreme_ratio,
+                    'detection_specificity': f'exercise_{self.exercise_type}'
+                }
+        
+        return {'should_pause_functions': False, 'reason': 'exercise_angles_stable'}
+
+    def _update_exercise_angle_history(self, angles):
+        """Update the exercise-specific angle history for jitter detection"""
+        # Store current exercise angles as previous for next frame
+        exercise_angles = {}
+        for angle_name in self.config['jitter_detection_angles']:
+            if angle_name in angles:
+                exercise_angles[angle_name] = angles[angle_name]
+        
+        self.previous_exercise_angles = exercise_angles
+        
+        # Also maintain a short history for trend analysis if needed
+        self.exercise_angle_change_history.append(exercise_angles)
+        if len(self.exercise_angle_change_history) > self.exercise_angle_history_window:
+            self.exercise_angle_change_history.pop(0)
     
-    # NEW: Main function to detect direction changes
+    def _get_paused_status_dict(self, jitter_status):
+        """Return status when paused due to exercise-specific jitter"""
+        return {
+            'total_reps': self.rep_count,
+            'half_reps': self.half_rep_count,
+            'current_phase': self.current_phase,
+            'primary_angle': None,
+            'smoothed_angle': None,
+            'angle_direction': self.angle_direction,
+            'current_max_angle': self.current_max_angle,
+            'current_min_angle': self.current_min_angle,
+            'events': [{'type': 'exercise_jitter_pause', 'message': f'Rep counting paused due to {self.exercise_type} motion jitter'}],
+            'direction_changed': False,
+            'ready_status': {'status': 'paused_exercise_jitter', 'message': f'Paused due to {self.exercise_type} jitter'},
+            'tracking_enabled': self.tracking_enabled,
+            'jitter_paused': True,
+            'exercise_jitter_info': jitter_status,
+            'monitored_angles': self.config['jitter_detection_angles']
+        }
+    
+    # Main function to detect direction changes
     def _detect_direction_change(self, smoothed_angle, frame_count):
-        """Detect changes in angle direction and count half reps"""
+        """
+        Detect changes in angle direction and count half reps - ENHANCED with timing validation
+        Now includes minimum frames between half reps to prevent false detections
+        """
         events = []
         direction_changed = False
         
@@ -1320,14 +1424,33 @@ class RepCounter:
             self.direction_confirmation_count += 1
             
             if self.direction_confirmation_count >= self.min_direction_confirmation:
-                # Direction change confirmed
-                self.previous_direction = self.angle_direction
-                self.angle_direction = current_direction
-                self.direction_confirmation_count = 0
-                direction_changed = True
-                
-                # Record extremum and process half rep
-                events = self._process_direction_change(smoothed_angle, frame_count)
+                # Direction change confirmed - now check timing validation
+                if self._is_valid_half_rep_timing(frame_count):
+                    # Both direction change AND timing are valid
+                    self.previous_direction = self.angle_direction
+                    self.angle_direction = current_direction
+                    self.direction_confirmation_count = 0
+                    direction_changed = True
+                    
+                    # Record extremum and process half rep
+                    events = self._process_direction_change(smoothed_angle, frame_count)
+                else:
+                    # Direction changed but timing is invalid - reject this half rep
+                    print(f"🚫 Half rep REJECTED - only {frame_count - self.last_half_rep_frame} frames since last (need {self.min_frames_between_half_reps})")
+                    
+                    # Reset confirmation counter to avoid getting stuck
+                    self.direction_confirmation_count = 0
+                    
+                    # Add rejection event for debugging
+                    events.append({
+                        'type': 'half_rep_rejected',
+                        'message': f'Half rep rejected - insufficient frame gap ({frame_count - self.last_half_rep_frame}/{self.min_frames_between_half_reps})',
+                        'frames_since_last': frame_count - self.last_half_rep_frame,
+                        'required_frames': self.min_frames_between_half_reps,
+                        'direction': current_direction,
+                        'angle': smoothed_angle,
+                        'frame': frame_count
+                    })
                 
         else:
             self.direction_confirmation_count = 0
@@ -1338,21 +1461,24 @@ class RepCounter:
         self.previous_smoothed_angle = smoothed_angle
         return direction_changed, events
     
-    # NEW: Process direction changes and count half reps
+    # Process direction changes and count half reps
     def _process_direction_change(self, current_angle, frame_count):
-        """Process confirmed direction change and update counters"""
+        """Process confirmed direction change and update counters - ENHANCED with frame tracking"""
         events = []
         
         if self.previous_direction is None:
             # First direction detected, just set phase
             self._set_phase_from_direction(self.angle_direction)
+            # Update frame tracking for first detection
+            self.last_half_rep_frame = frame_count
             return events
         
         # Record the extremum angle when direction changes
         self._record_extremum_angle(current_angle)
         
-        # Count half rep
+        # Count half rep and update frame tracking
         self.half_rep_count += 1
+        self.last_half_rep_frame = frame_count  # Record when this half rep occurred
         
         # Update phase based on new direction
         self._set_phase_from_direction(self.angle_direction)
@@ -1366,7 +1492,8 @@ class RepCounter:
             'direction': self.angle_direction,
             'phase': self.current_phase,
             'angle': current_angle,
-            'frame': frame_count
+            'frame': frame_count,
+            'frames_since_last_half_rep': frame_count - (self.last_half_rep_frame if hasattr(self, '_previous_half_rep_frame') else 0)
         })
         
         # Check for full rep (every 2 half reps)
@@ -1392,8 +1519,7 @@ class RepCounter:
         
         return events
     
-    
-    # NEW: Set movement phase based on direction
+    # Set movement phase based on direction
     def _set_phase_from_direction(self, direction):
         """Set current phase based on angle direction"""
         self.previous_phase = self.current_phase
@@ -1405,7 +1531,7 @@ class RepCounter:
         else:
             self.current_phase = "neutral"
     
-    # NEW: Update min/max angle tracking
+    # Update min/max angle tracking
     def _update_angle_extremes(self, angle):
         """Update current min and max angles for ROM tracking"""
         if self.current_min_angle is None or angle < self.current_min_angle:
@@ -1414,13 +1540,12 @@ class RepCounter:
         if self.current_max_angle is None or angle > self.current_max_angle:
             self.current_max_angle = angle
     
-    # NEW: Record extremum when direction changes
+    # Record extremum when direction changes
     def _record_extremum_angle(self, angle):
         """Record extremum angle when movement direction changes"""
-        # This angle represents a peak or valley in the movement
-        pass  # The extremum is already captured in current_min_angle/current_max_angle
+        pass
     
-    # NEW: Get range of motion data
+    # Get range of motion data
     def get_range_of_motion_data(self):
         """Get range of motion data for completed reps"""
         if not self.rom_data:
@@ -1462,16 +1587,12 @@ class RepCounter:
             'current_max_angle': self.current_max_angle,
             'current_min_angle': self.current_min_angle,
             'events': [],
-            'direction_changed': False
+            'direction_changed': False,
+            'jitter_paused': self.paused_due_to_jitter
         }
     
     def _check_ready_position_status(self, angles, keypoints, confidences, frame_count):
-        """
-        Check ready position status and update tracking state
-        
-        Returns:
-            dict: Ready position status information
-        """
+        """Check ready position status and update tracking state"""
         if self.ready_position_detector is None:
             # No ready position detector - start tracking immediately
             if not self.tracking_enabled:
@@ -1496,14 +1617,8 @@ class RepCounter:
             if not self.tracking_enabled:
                 self.tracking_enabled = True
                 print("🎯 READY POSITION CONFIRMED - REP COUNTING STARTED!")
-        elif not ready_status["ready"]:
-            # If user leaves ready position, we might want to keep tracking
-            # or stop tracking depending on your preference
-            # For now, let's keep tracking once started
-            pass
         
         return ready_status
-    
 
     def _get_status_dict_with_ready_info(self, ready_status):
         """Return current status when tracking is disabled or angle data unavailable"""
@@ -1518,81 +1633,70 @@ class RepCounter:
             'current_min_angle': self.current_min_angle,
             'events': [],
             'direction_changed': False,
-            # NEW: Add ready position information
             'ready_status': ready_status,
-            'tracking_enabled': self.tracking_enabled
+            'tracking_enabled': self.tracking_enabled,
+            'jitter_paused': self.paused_due_to_jitter
         }
 
-
     def set_ready_position_detector(self, ready_position_detector):
-        """
-        Set or update the ready position detector
-        
-        Args:
-            ready_position_detector: ReadyPositionDetector instance
-        """
+        """Set or update the ready position detector"""
         self.ready_position_detector = ready_position_detector
         print("Ready position detector updated for RepCounter")
 
-
     def force_start_tracking(self):
-        """
-        Force start tracking regardless of ready position status
-        Useful for manual override or testing
-        """
+        """Force start tracking regardless of ready position status"""
         self.tracking_enabled = True
         print("🎯 REP TRACKING FORCE STARTED!")
 
     def stop_tracking(self):
-        """
-        Stop rep counting tracking
-        """
+        """Stop rep counting tracking"""
         self.tracking_enabled = False
         print("⏸️ REP TRACKING STOPPED")
 
     def is_tracking_enabled(self):
-        """
-        Check if rep counting is currently enabled
-        
-        Returns:
-            bool: True if tracking is enabled
-        """
+        """Check if rep counting is currently enabled"""
         return self.tracking_enabled
 
-
     def reset_count(self):
-        """Reset all counters and tracking state"""
+        """Reset all counters and tracking state - ENHANCED with half rep frame tracking"""
         self.rep_count = 0
         self.half_rep_count = 0
         self.current_phase = "neutral"
         self.previous_phase = "neutral"
         self.angle_history = []
         
-        # NEW: Reset tracking state
-        self.tracking_enabled = False  # Must wait for ready position again
+        # Reset tracking state
+        self.tracking_enabled = False
         
-        # NEW: Reset direction tracking
+        # Reset exercise-specific jitter state
+        self.paused_due_to_jitter = False
+        self.previous_exercise_angles = {}
+        self.exercise_angle_change_history = []
+        
+        # Reset direction tracking
         self.previous_smoothed_angle = None
         self.angle_direction = None
         self.previous_direction = None
         self.direction_confirmation_count = 0
         
-        # NEW: Reset ROM tracking
+        # Reset ROM tracking
         self.current_max_angle = None
         self.current_min_angle = None
         self.rom_data = []
         
+        # Reset frame tracking for both reps and half reps
         self.last_rep_frame = 0
+        self.last_half_rep_frame = 0
         
-        # NEW: Reset ready position detector if available
+        # Reset ready position detector if available
         if self.ready_position_detector:
             self.ready_position_detector.reset()
         
-        print("Rep counter reset - waiting for ready position")
+        print(f"Rep counter reset - waiting for ready position (monitoring {self.config['jitter_detection_angles']} for jitter)")
+        print(f"Half rep validation: {self.min_frames_between_half_reps} frame minimum between half reps")
 
-    # FIXED: Added the missing get_rep_summary method
     def get_rep_summary(self):
-        """Get formatted summary of rep counting"""
+        """Get formatted summary of rep counting including exercise-specific jitter info and timing validation"""
         return {
             'exercise': self.exercise_type,
             'total_reps': self.rep_count,
@@ -1602,17 +1706,23 @@ class RepCounter:
             'angle_direction': self.angle_direction,
             'current_range': f"{self.current_min_angle}° - {self.current_max_angle}°" if self.current_min_angle is not None and self.current_max_angle is not None else "Not available",
             'tracking_enabled': self.tracking_enabled,
-            'ready_detector': "Active" if self.ready_position_detector else "None"
+            'ready_detector': "Active" if self.ready_position_detector else "None",
+            'jitter_paused': self.paused_due_to_jitter,
+            'monitored_jitter_angles': self.config['jitter_detection_angles'],
+            'jitter_thresholds': self.config['jitter_angle_thresholds'],
+            'half_rep_timing_validation': {
+                'enabled': True,
+                'min_frames_between_half_reps': self.min_frames_between_half_reps,
+                'last_half_rep_frame': self.last_half_rep_frame
+            }
         }
-
 
 
 
 class FitnessScorer:
     """
     Fitness scoring system that starts at 100 points and deducts for incorrect form
-    Uses angles, velocities, and joint steadiness to assess exercise performance
-    ENHANCED: Only starts tracking when Ready Position Detector confirms user is ready
+    ENHANCED: Now integrates with Simple Jitter Detection Pause System
     """
     
     def __init__(self, exercise_type="dumbell-curl", starting_points=100, center_mode="reset", ready_position_detector=None):
@@ -1623,38 +1733,42 @@ class FitnessScorer:
         self.frame_count = 0
         self.center_mode = center_mode
         
-        # NEW: Ready position integration
+        # Ready position integration
         self.ready_position_detector = ready_position_detector
-        self.tracking_started = False  # NEW: Flag to control when tracking begins
-        self.pre_ready_frames = 0  # NEW: Count frames before ready position
+        self.tracking_started = False
+        self.pre_ready_frames = 0
         
-        # MODIFIED: Pass ready_position_detector to RepCounter
+        # NEW: Jitter pause integration
+        self.jitter_pause_system = None  # Will be set by VelocityTracker
+        self.paused_due_to_jitter = False
+        
+        # Pass ready_position_detector to RepCounter
         self.rep_counter = RepCounter(exercise_type, ready_position_detector)
         
-        # Exercise-specific angle ranges (in degrees)
+        # Exercise-specific rules
         self.angle_rules = {
             "dumbell-curl": {
-                "left_elbow": {"min": 20, "max": 180, "deduction": 5},
-                "right_elbow": {"min": 20, "max": 180, "deduction": 5},
+                "left_elbow": {"min": 10, "max": 180, "deduction": 5},
+                "right_elbow": {"min": 10, "max": 180, "deduction": 5},
             }
         }
         
         self.rom_rules = {
             "dumbell-curl": {
                 "left_elbow": {
-                    "optimal_min_range": (30, 65),     
-                    "optimal_max_range": (170, 180),   
-                    "contraction_deduction": 2.0,      
-                    "extension_deduction": 2.0,        
-                    "frequency_penalty": 30,           
-                    "severe_contraction_threshold": 90,  
-                    "severe_extension_threshold": 140,   
+                    "optimal_min_range": (30, 65),
+                    "optimal_max_range": (170, 180),
+                    "contraction_deduction": 2.0,
+                    "extension_deduction": 2.0,
+                    "frequency_penalty": 30,
+                    "severe_contraction_threshold": 90,
+                    "severe_extension_threshold": 140,
                 },
                 "right_elbow": {
                     "optimal_min_range": (30, 65),
                     "optimal_max_range": (170, 180),
                     "contraction_deduction": 2.0,
-                    "extension_deduction": 2.0,  
+                    "extension_deduction": 2.0,
                     "frequency_penalty": 30,
                     "severe_contraction_threshold": 90,
                     "severe_extension_threshold": 140,
@@ -1662,39 +1776,39 @@ class FitnessScorer:
             }
         }
         
-        # NEW: ROM tracking variables  
+        # ROM tracking variables
         self.rom_violations = {}
         self.last_rom_check_frame = {}
 
-        # Velocity rules (speed categories from your adaptive system)
+        # Velocity rules
         self.velocity_rules = {
             "excessive_speed": {
-                 "joints": {
+                "joints": {
                     "left_wrist": {"allowed_speeds": ["medium", "slow"], "deduction": 0.1},
                     "right_wrist": {"allowed_speeds": ["medium", "slow"], "deduction": 0.1}
-                         },
-                "max_fast_frames": 15,  
-                "max_medium_frames": 30,  
+                },
+                "max_fast_frames": 15,
+                "max_medium_frames": 30,
             }
         }
         
-        # NEW: Steadiness detection rules
+        # Steadiness detection rules
         self.steadiness_rules = {
-            "joints": {},  
+            "joints": {},
             "global_settings": {
-                "update_center_frames": 30,  
-                "min_frames_before_penalty": 30,  
-                "consecutive_violation_threshold": 20  
+                "update_center_frames": 30,
+                "min_frames_before_penalty": 30,
+                "consecutive_violation_threshold": 20
             }
         }
         
         # Tracking variables
         self.fast_movement_counter = {}
         
-        # NEW: Steadiness tracking variables
-        self.steadiness_centers = {}  
-        self.steadiness_violations = {}  
-        self.steadiness_history = {}  
+        # Steadiness tracking variables
+        self.steadiness_centers = {}
+        self.steadiness_violations = {}
+        self.steadiness_history = {}
 
         # Initialize joint steadiness requirements (but tracking won't start until ready)
         self.set_joint_steadiness_requirements("left_shoulder", 0.125, 1, True, center_mode="fixed")
@@ -1703,23 +1817,40 @@ class FitnessScorer:
         self.set_joint_steadiness_requirements("right_elbow", 0.25, 1, True, center_mode="fixed")
         
         print(f"FitnessScorer initialized - waiting for ready position before tracking starts")
+        print("Jitter detection will pause fitness scoring during erratic motion")
+    
+    def set_jitter_pause_system(self, jitter_pause_system):
+        """Set reference to the jitter pause system"""
+        self.jitter_pause_system = jitter_pause_system
+        # Also pass it to the rep counter
+        if hasattr(self.rep_counter, 'set_jitter_pause_system'):
+            self.rep_counter.set_jitter_pause_system(jitter_pause_system)
+        print("FitnessScorer: Jitter pause system connected")
     
     def check_ready_and_start_tracking(self, angles, keypoints, confidences, frame_count, velocities=None):
         """
-        NEW METHOD: Check ready position and start tracking when ready
-        This method MUST be called before evaluate_frame()
-        
-        Args:
-            angles: Current body angles
-            keypoints: Current keypoints
-            confidences: Current confidence scores
-            frame_count: Current frame number
-            velocities: Optional velocity data
-            
-        Returns:
-            dict: Ready position status and tracking start information
+        Check ready position and start tracking when ready
+        ENHANCED: Now considers jitter status
         """
         self.pre_ready_frames += 1
+        
+        # NEW: Check jitter status first
+        if self.jitter_pause_system and velocities:
+            jitter_status = self.jitter_pause_system.check_frame_for_extreme_speeds(
+                velocities, 
+                velocities.get('thresholds', {'slow': 50, 'medium': 150, 'fast': 300}) if isinstance(velocities, dict) else {'slow': 50, 'medium': 150, 'fast': 300}
+            )
+            
+            if jitter_status['should_pause_functions']:
+                self.paused_due_to_jitter = True
+                return {
+                    'tracking_started': self.tracking_started,
+                    'ready_status': {'status': 'paused_jitter', 'message': 'Paused due to motion jitter'},
+                    'preparation_frames': self.pre_ready_frames,
+                    'message': 'Fitness tracking paused due to motion jitter'
+                }
+            else:
+                self.paused_due_to_jitter = False
         
         if not self.tracking_started and self.ready_position_detector is not None:
             # Check if user is in ready position
@@ -1732,7 +1863,7 @@ class FitnessScorer:
                 self.tracking_started = True
                 self.frame_count = 0  # Reset frame count to start fresh
                 
-                # CRITICAL: Initialize steadiness centers NOW with current positions
+                # Initialize steadiness centers NOW with current positions
                 self._initialize_steadiness_centers_on_ready(keypoints, confidences)
                 
                 print(f"🎯 FITNESS TRACKING STARTED after {self.pre_ready_frames} preparation frames!")
@@ -1758,19 +1889,12 @@ class FitnessScorer:
             'tracking_started': self.tracking_started,
             'ready_status': None,
             'preparation_frames': self.pre_ready_frames,
-            'message': 'Tracking active' if self.tracking_started else 'No ready position detector'
+            'message': 'Tracking active' if self.tracking_started else 'No ready position detector',
+            'jitter_paused': self.paused_due_to_jitter
         }
     
     def _initialize_steadiness_centers_on_ready(self, keypoints, confidences, confidence_threshold=0.3):
-        """
-        NEW METHOD: Initialize steadiness centers when ready position is detected
-        This ensures centers are set from a proper starting position, not random movement
-        
-        CRITICAL REASONING:
-        - We want steadiness centers to represent the "ideal" position when user is ready
-        - Setting centers during movement/setup would create incorrect baselines
-        - By setting centers at ready position, we ensure accurate steadiness tracking
-        """
+        """Initialize steadiness centers when ready position is detected"""
         # Keypoint name mapping
         keypoint_mapping = {
             'nose': 0, 'left_eye': 1, 'right_eye': 2, 'left_ear': 3, 'right_ear': 4,
@@ -1808,19 +1932,32 @@ class FitnessScorer:
     def evaluate_frame(self, angles, velocities, keypoints=None, body_scale=None, confidences=None):
         """
         Evaluate a single frame and deduct points for incorrect form
-        ENHANCED: Only performs evaluation when tracking has started
-        CRITICAL: Must call check_ready_and_start_tracking() first!
+        ENHANCED: Now handles jitter pause integration
         """
-        # CRITICAL CHECK: Only evaluate if tracking has started
+        # Check if paused due to jitter
+        if self.paused_due_to_jitter:
+            return {
+                'current_points': self.current_points,
+                'frame_deductions': [],
+                'total_deduction': 0.0,
+                'feedback': ['Fitness evaluation paused due to motion jitter'],
+                'score_percentage': (self.current_points / self.starting_points) * 100,
+                'rep_info': self.rep_counter.get_rep_summary(),
+                'tracking_active': False,
+                'jitter_paused': True
+            }
+        
+        # Check if tracking has started
         if not self.tracking_started:
             return {
                 'current_points': self.current_points,
                 'frame_deductions': [],
                 'total_deduction': 0.0,
                 'feedback': ['Waiting for ready position...'],
-                'score_percentage': 100.0,  # Keep at 100% until tracking starts
-                'rep_info': self.rep_counter.get_rep_summary(),  # Return empty rep info
-                'tracking_active': False  # NEW: Indicate tracking is not active
+                'score_percentage': 100.0,
+                'rep_info': self.rep_counter.get_rep_summary(),
+                'tracking_active': False,
+                'jitter_paused': False
             }
         
         # Increment frame count ONLY after tracking starts
@@ -1841,8 +1978,10 @@ class FitnessScorer:
             steadiness_deductions = self._evaluate_steadiness(keypoints, body_scale)
             frame_deductions.extend(steadiness_deductions)
         
-        # 4. REP COUNTING (enhanced to work with ready position)
-        rep_info = self.rep_counter.update_rep_count(angles, self.frame_count, keypoints, confidences)
+        # 4. REP COUNTING (enhanced to work with ready position and jitter)
+        rep_info = self.rep_counter.update_rep_count(
+        angles, self.frame_count, keypoints, confidences, velocities  # ← ADD VELOCITIES HERE!
+    )
         
         # 5. RANGE OF MOTION EVALUATION
         rom_deductions = self._evaluate_range_of_motion(rep_info)
@@ -1870,6 +2009,8 @@ class FitnessScorer:
                 feedback_messages.insert(0, f"🎉 {event['message']}")
             elif event['type'] in ['eccentric_complete', 'concentric_complete']:
                 feedback_messages.append(f"📊 {event['message']}")
+            elif event['type'] == 'jitter_pause':
+                feedback_messages.insert(0, f"⚠️ {event['message']}")
         
         return {
             'current_points': self.current_points,
@@ -1878,18 +2019,18 @@ class FitnessScorer:
             'feedback': feedback_messages,
             'score_percentage': (self.current_points / self.starting_points) * 100,
             'rep_info': rep_info,
-            'tracking_active': True  # NEW: Indicate tracking is active
+            'tracking_active': True,
+            'jitter_paused': False
         }
     
     def _evaluate_steadiness(self, keypoints, body_scale=None):
         """
-        Evaluate joint steadiness against defined radius requirements
-        ENHANCED: Only evaluates steadiness if centers have been properly initialized
+        Evaluate joint steadiness - ENHANCED: Skipped during jitter
         """
         deductions = []
         
-        # CRITICAL: Only evaluate steadiness if tracking has started
-        if not self.tracking_started:
+        # Skip steadiness evaluation during jitter
+        if self.paused_due_to_jitter or not self.tracking_started:
             return deductions
         
         # Keypoint name mapping
@@ -1912,7 +2053,7 @@ class FitnessScorer:
                 
             current_position = keypoints[joint_idx]
             
-            # CRITICAL: Only evaluate if center has been initialized
+            # Only evaluate if center has been initialized
             if joint_name not in self.steadiness_centers or self.steadiness_centers[joint_name] is None:
                 continue
             
@@ -1929,14 +2070,12 @@ class FitnessScorer:
             if len(self.steadiness_history[joint_name]) > max_history:
                 self.steadiness_history[joint_name].pop(0)
             
-            # MODIFIED: Handle center updates based on joint's center_mode
+            # Handle center updates based on joint's center_mode
             joint_center_mode = rule.get("center_mode", "reset")
             
             if joint_center_mode == "fixed":
                 # FIXED MODE: Never update center after initial ready position
-                # Center was set in _initialize_steadiness_centers_on_ready()
-                pass  # Do nothing - keep the original center
-            
+                pass
             else:  # joint_center_mode == "reset"
                 # RESET MODE: Update center periodically ONLY AFTER tracking started
                 if self.frame_count % self.steadiness_rules["global_settings"]["update_center_frames"] == 0:
@@ -1944,7 +2083,7 @@ class FitnessScorer:
                         positions = np.array(self.steadiness_history[joint_name])
                         self.steadiness_centers[joint_name] = np.mean(positions, axis=0)
             
-            # Check steadiness (same as before, but now we know center is valid)
+            # Check steadiness
             center = self.steadiness_centers[joint_name]
             distance = np.linalg.norm(current_position - center)
             
@@ -1979,80 +2118,106 @@ class FitnessScorer:
                 self.steadiness_violations[joint_name] = 0
         
         return deductions
-    
-    # [Include all other existing methods unchanged...]
-    def set_joint_speed_requirements(self, joint_name, allowed_speeds, deduction_amount=0.2):
-        if "excessive_speed" not in self.velocity_rules:
-            self.velocity_rules["excessive_speed"] = {"joints": {}, "max_bad_frames": 5}
-        
-        self.velocity_rules["excessive_speed"]["joints"][joint_name] = {
-            "allowed_speeds": allowed_speeds,
-            "deduction": deduction_amount
-        }
-        
-        print(f"Set {joint_name} to allow speeds: {allowed_speeds} (penalty: {deduction_amount} points)")
-    
-    def set_joint_steadiness_requirements(self, joint_name, radius, deduction_amount=0.3, adaptive_radius=True, center_mode=None):
-        effective_center_mode = center_mode if center_mode is not None else self.center_mode
-        
-        self.steadiness_rules["joints"][joint_name] = {
-            "radius": radius,
-            "deduction": deduction_amount,
-            "adaptive_radius": adaptive_radius,
-            "center_mode": effective_center_mode
-        }
-        
-        # Initialize tracking for this joint (but don't set center until ready)
-        self.steadiness_centers[joint_name] = None  # Will be set when ready
-        self.steadiness_violations[joint_name] = 0
-        self.steadiness_history[joint_name] = []
-        
-        radius_type = "body-scale units" if adaptive_radius else "pixels"
-        center_type = "fixed from ready position" if effective_center_mode == "fixed" else "resets every 60 frames"
-        print(f"Set {joint_name} steadiness: radius {radius} {radius_type}, center {center_type} (penalty: {deduction_amount} points)")
-    
-    def get_joint_steadiness_requirements(self):
-        return self.steadiness_rules["joints"]
-    
-    def remove_joint_steadiness_requirements(self, joint_name):
-        if joint_name in self.steadiness_rules["joints"]:
-            del self.steadiness_rules["joints"][joint_name]
-            
-            if joint_name in self.steadiness_centers:
-                del self.steadiness_centers[joint_name]
-            if joint_name in self.steadiness_violations:
-                del self.steadiness_violations[joint_name]
-            if joint_name in self.steadiness_history:
-                del self.steadiness_history[joint_name]
-                
-            print(f"Removed steadiness monitoring for {joint_name}")
-    
-    def set_joint_rom_requirements(self, joint_name, optimal_min, optimal_max, 
-                                 contraction_deduction=2.0, extension_deduction=2.0, frequency_penalty=30):
-        if self.exercise_type not in self.rom_rules:
-            self.rom_rules[self.exercise_type] = {}
-            
-        self.rom_rules[self.exercise_type][joint_name] = {
-            "optimal_min": optimal_min,
-            "optimal_max": optimal_max,
-            "contraction_deduction": contraction_deduction,
-            "extension_deduction": extension_deduction,
-            "frequency_penalty": frequency_penalty
-        }
-        
-        print(f"Set ROM requirements for {joint_name}: {optimal_min}°-{optimal_max}° "
-              f"(penalties: {contraction_deduction}/{extension_deduction} points)")
 
-    def get_rom_violations_summary(self):
-        return {
-            'violations': self.rom_violations,
-            'total_contraction_violations': sum([v['insufficient_contraction'] for v in self.rom_violations.values()]),
-            'total_extension_violations': sum([v['insufficient_extension'] for v in self.rom_violations.values()]),
-        }
+    def _evaluate_angles(self, angles):
+        """Angle evaluation - skipped during jitter"""
+        if self.paused_due_to_jitter or not self.tracking_started:
+            return []
+            
+        deductions = []
+        current_rules = self.angle_rules.get(self.exercise_type, self.angle_rules["dumbell-curl"])
+        
+        for angle_name, angle_value in angles.items():
+            if angle_name in current_rules:
+                rule = current_rules[angle_name]
+                
+                if angle_value < rule["min"] or angle_value > rule["max"]:
+                    deduction_amount = rule["deduction"]
+                    
+                    if self.frame_count % 10 == 0:
+                        deductions.append({
+                            'type': 'angle',
+                            'joint': angle_name,
+                            'amount': deduction_amount,
+                            'reason': f"{angle_name.replace('_', ' ').title()}: {angle_value:.1f}° (should be {rule['min']}-{rule['max']}°)",
+                            'severity': self._calculate_severity(angle_value, rule["min"], rule["max"])
+                        })
+        
+        return deductions
+
+
+
+
+
+    def _evaluate_velocities(self, velocities):
+        """Velocity evaluation - skipped during jitter"""
+        if self.paused_due_to_jitter or not self.tracking_started:
+            return []
+            
+        deductions = []
+        
+        # Handle case where velocities might be None or not a dictionary
+        if not velocities or not isinstance(velocities, dict):
+            return deductions
+        
+        for joint_name, velocity_data in velocities.items():
+            # Skip special keys that start with underscore (like _tracking_started, _preparation_frames)
+            if joint_name.startswith('_'):
+                continue
+                
+            # Ensure velocity_data is a dictionary and has the required structure
+            if not isinstance(velocity_data, dict) or 'speed_category' not in velocity_data:
+                continue
+                
+            speed_category = velocity_data['speed_category']
+            
+            if joint_name in self.velocity_rules["excessive_speed"]["joints"]:
+                joint_rule = self.velocity_rules["excessive_speed"]["joints"][joint_name]
+                
+                if speed_category not in joint_rule["allowed_speeds"]:
+                    if joint_name not in self.fast_movement_counter:
+                        self.fast_movement_counter[joint_name] = {"fast": 0, "medium": 0}
+                    
+                    if speed_category == 'fast':
+                        self.fast_movement_counter[joint_name]["fast"] += 1
+                        self.fast_movement_counter[joint_name]["medium"] = 0
+                    elif speed_category == 'medium':
+                        self.fast_movement_counter[joint_name]["medium"] += 1
+                        self.fast_movement_counter[joint_name]["fast"] = 0
+                    
+                    max_fast = self.velocity_rules["excessive_speed"]["max_fast_frames"]
+                    if self.fast_movement_counter[joint_name]["fast"] > max_fast:
+                        deductions.append({
+                            'type': 'velocity',
+                            'joint': joint_name,
+                            'amount': joint_rule["deduction"],
+                            'reason': f"{joint_name.replace('_', ' ').title()}: Moving too fast for too long",
+                            'severity': 'high'
+                        })
+                    
+                    max_medium = self.velocity_rules["excessive_speed"].get("max_medium_frames", 8)
+                    if (speed_category == 'medium' and 
+                        self.fast_movement_counter[joint_name]["medium"] > max_medium):
+                        deductions.append({
+                            'type': 'velocity',
+                            'joint': joint_name,
+                            'amount': joint_rule["deduction"] * 0.5,
+                            'reason': f"{joint_name.replace('_', ' ').title()}: Moving at medium speed for too long",
+                            'severity': 'medium'
+                        })
+                        
+                else:
+                    if joint_name not in self.fast_movement_counter:
+                        self.fast_movement_counter[joint_name] = {"fast": 0, "medium": 0}
+                    else:
+                        self.fast_movement_counter[joint_name]["fast"] = 0
+                        self.fast_movement_counter[joint_name]["medium"] = 0
+        
+        return deductions
 
     def _evaluate_range_of_motion(self, rep_info):
-        """ROM evaluation - only when tracking is active"""
-        if not self.tracking_started:
+        """ROM evaluation - skipped during jitter"""
+        if self.paused_due_to_jitter or not self.tracking_started:
             return []
             
         deductions = []
@@ -2143,107 +2308,8 @@ class FitnessScorer:
         
         return deductions
 
-    def _evaluate_angles(self, angles):
-        """Angle evaluation - only when tracking is active"""
-        if not self.tracking_started:
-            return []
-            
-        deductions = []
-        current_rules = self.angle_rules.get(self.exercise_type, self.angle_rules["dumbell-curl"])
-        
-        for angle_name, angle_value in angles.items():
-            if angle_name in current_rules:
-                rule = current_rules[angle_name]
-                
-                if angle_value < rule["min"] or angle_value > rule["max"]:
-                    deduction_amount = rule["deduction"]
-                    
-                    if self.frame_count % 10 == 0:
-                        deductions.append({
-                            'type': 'angle',
-                            'joint': angle_name,
-                            'amount': deduction_amount,
-                            'reason': f"{angle_name.replace('_', ' ').title()}: {angle_value:.1f}° (should be {rule['min']}-{rule['max']}°)",
-                            'severity': self._calculate_severity(angle_value, rule["min"], rule["max"])
-                        })
-        
-        return deductions
-    
-    def set_joint_center_mode(self, joint_name, center_mode):
-        if joint_name in self.steadiness_rules["joints"]:
-            old_mode = self.steadiness_rules["joints"][joint_name].get("center_mode", "reset")
-            self.steadiness_rules["joints"][joint_name]["center_mode"] = center_mode
-            
-            if center_mode == "fixed" and old_mode != "fixed":
-                self.steadiness_centers[joint_name] = None
-                print(f"Switched {joint_name} to fixed center mode - center will be recalculated")
-            elif center_mode == "reset" and old_mode != "reset":
-                print(f"Switched {joint_name} to reset center mode - center will update every 60 frames")
-        else:
-            print(f"Joint {joint_name} not found in steadiness rules")
-
-    def set_global_center_mode(self, center_mode):
-        self.center_mode = center_mode
-        print(f"Global center mode set to: {center_mode}")
-
-    def _evaluate_velocities(self, velocities):
-        """Velocity evaluation - only when tracking is active"""
-        if not self.tracking_started:
-            return []
-            
-        deductions = []
-        
-        for joint_name, velocity_data in velocities.items():
-            if 'speed_category' not in velocity_data:
-                continue
-                
-            speed_category = velocity_data['speed_category']
-            
-            if joint_name in self.velocity_rules["excessive_speed"]["joints"]:
-                joint_rule = self.velocity_rules["excessive_speed"]["joints"][joint_name]
-                
-                if speed_category not in joint_rule["allowed_speeds"]:
-                    if joint_name not in self.fast_movement_counter:
-                        self.fast_movement_counter[joint_name] = {"fast": 0, "medium": 0}
-                    
-                    if speed_category == 'fast':
-                        self.fast_movement_counter[joint_name]["fast"] += 1
-                        self.fast_movement_counter[joint_name]["medium"] = 0
-                    elif speed_category == 'medium':
-                        self.fast_movement_counter[joint_name]["medium"] += 1
-                        self.fast_movement_counter[joint_name]["fast"] = 0
-                    
-                    max_fast = self.velocity_rules["excessive_speed"]["max_fast_frames"]
-                    if self.fast_movement_counter[joint_name]["fast"] > max_fast:
-                        deductions.append({
-                            'type': 'velocity',
-                            'joint': joint_name,
-                            'amount': joint_rule["deduction"],
-                            'reason': f"{joint_name.replace('_', ' ').title()}: Moving too fast for too long",
-                            'severity': 'high'
-                        })
-                    
-                    max_medium = self.velocity_rules["excessive_speed"].get("max_medium_frames", 8)
-                    if (speed_category == 'medium' and 
-                        self.fast_movement_counter[joint_name]["medium"] > max_medium):
-                        deductions.append({
-                            'type': 'velocity',
-                            'joint': joint_name,
-                            'amount': joint_rule["deduction"] * 0.5,
-                            'reason': f"{joint_name.replace('_', ' ').title()}: Moving at medium speed for too long",
-                            'severity': 'medium'
-                        })
-                        
-                else:
-                    if joint_name not in self.fast_movement_counter:
-                        self.fast_movement_counter[joint_name] = {"fast": 0, "medium": 0}
-                    else:
-                        self.fast_movement_counter[joint_name]["fast"] = 0
-                        self.fast_movement_counter[joint_name]["medium"] = 0
-        
-        return deductions
-    
     def _calculate_severity(self, value, min_val, max_val):
+        """Calculate severity of angle violations"""
         if min_val <= value <= max_val:
             return 'none'
         
@@ -2261,7 +2327,7 @@ class FitnessScorer:
             return 'medium'
         else:
             return 'low'
-    
+
     def _generate_feedback(self, frame_deductions):
         """Generate user-friendly feedback messages"""
         feedback = []
@@ -2290,26 +2356,51 @@ class FitnessScorer:
             feedback.append("🎯 ROM: " + rom_issues[0]['reason'])
 
         return feedback
-    
-    def get_steadiness_debug_info(self):
-        """Get debug information about steadiness tracking"""
-        debug_info = {}
+
+    # [Include remaining utility methods with jitter awareness...]
+    def set_joint_speed_requirements(self, joint_name, allowed_speeds, deduction_amount=0.2):
+        if "excessive_speed" not in self.velocity_rules:
+            self.velocity_rules["excessive_speed"] = {"joints": {}, "max_bad_frames": 5}
         
-        for joint_name in self.steadiness_rules["joints"]:
-            rule = self.steadiness_rules["joints"][joint_name]
-            debug_info[joint_name] = {
-                'center_position': self.steadiness_centers.get(joint_name),
-                'center_mode': rule.get('center_mode', 'reset'),
-                'violation_count': self.steadiness_violations.get(joint_name, 0),
-                'history_length': len(self.steadiness_history.get(joint_name, [])),
-                'rule': rule,
-                'tracking_started': self.tracking_started  # NEW: Show if tracking is active
-            }
+        self.velocity_rules["excessive_speed"]["joints"][joint_name] = {
+            "allowed_speeds": allowed_speeds,
+            "deduction": deduction_amount
+        }
         
-        return debug_info
+        print(f"Set {joint_name} to allow speeds: {allowed_speeds} (penalty: {deduction_amount} points)")
     
+
+
+    def get_joint_steadiness_requirements(self):
+        """
+        Get the current joint steadiness requirements
+        
+        Returns:
+            dict: Dictionary of joint steadiness rules
+        """
+        return self.steadiness_rules["joints"]
+    
+    def set_joint_steadiness_requirements(self, joint_name, radius, deduction_amount=0.3, adaptive_radius=True, center_mode=None):
+        effective_center_mode = center_mode if center_mode is not None else self.center_mode
+        
+        self.steadiness_rules["joints"][joint_name] = {
+            "radius": radius,
+            "deduction": deduction_amount,
+            "adaptive_radius": adaptive_radius,
+            "center_mode": effective_center_mode
+        }
+        
+        # Initialize tracking for this joint (but don't set center until ready)
+        self.steadiness_centers[joint_name] = None  # Will be set when ready
+        self.steadiness_violations[joint_name] = 0
+        self.steadiness_history[joint_name] = []
+        
+        radius_type = "body-scale units" if adaptive_radius else "pixels"
+        center_type = "fixed from ready position" if effective_center_mode == "fixed" else "resets every 60 frames"
+        print(f"Set {joint_name} steadiness: radius {radius} {radius_type}, center {center_type} (penalty: {deduction_amount} points)")
+
     def get_score_display(self):
-        """Get formatted score display with tracking status"""
+        """Get formatted score display with jitter status"""
         percentage = (self.current_points / self.starting_points) * 100
         
         if percentage >= 90:
@@ -2325,8 +2416,11 @@ class FitnessScorer:
             grade = "D"
             color = (0, 0, 255)  # Red
         
-        # Modify display text based on tracking status
-        if not self.tracking_started:
+        # Modify display text based on tracking and jitter status
+        if self.paused_due_to_jitter:
+            display_text = f"Score: Paused ({int(self.current_points)}/100)"
+            color = (255, 0, 255)  # Magenta for jitter pause
+        elif not self.tracking_started:
             display_text = f"Score: Ready? ({int(self.current_points)}/100)"
             color = (128, 128, 128)  # Gray when not tracking
         else:
@@ -2338,9 +2432,10 @@ class FitnessScorer:
             'grade': grade,
             'color': color,
             'display_text': display_text,
-            'tracking_started': self.tracking_started  # NEW: Include tracking status
+            'tracking_started': self.tracking_started,
+            'jitter_paused': self.paused_due_to_jitter
         }
-    
+
     def reset_score(self):
         """Reset score to starting value and tracking state"""
         self.current_points = self.starting_points
@@ -2350,9 +2445,12 @@ class FitnessScorer:
         self.rep_counter.reset_count()
         self.rom_violations = {}
         
-        # NEW: Reset tracking state
+        # Reset tracking state
         self.tracking_started = False
         self.pre_ready_frames = 0
+        
+        # NEW: Reset jitter state
+        self.paused_due_to_jitter = False
         
         # Reset steadiness tracking
         for joint_name in list(self.steadiness_centers.keys()):
@@ -2370,13 +2468,32 @@ class FitnessScorer:
             self.ready_position_detector.reset()
         
         print("Fitness score and tracking state reset - user must assume ready position again")
-    
+
+    def get_steadiness_debug_info(self):
+        """Get debug information about steadiness tracking"""
+        debug_info = {}
+        
+        for joint_name in self.steadiness_rules["joints"]:
+            rule = self.steadiness_rules["joints"][joint_name]
+            debug_info[joint_name] = {
+                'center_position': self.steadiness_centers.get(joint_name),
+                'center_mode': rule.get('center_mode', 'reset'),
+                'violation_count': self.steadiness_violations.get(joint_name, 0),
+                'history_length': len(self.steadiness_history.get(joint_name, [])),
+                'rule': rule,
+                'tracking_started': self.tracking_started,
+                'jitter_paused': self.paused_due_to_jitter
+            }
+        
+        return debug_info
+
+    # [Include remaining methods...]
     def get_rep_info(self):
         """Get current rep counting information"""
         return self.rep_counter.get_rep_summary()
-    
+
     def get_summary_report(self):
-        """Get detailed performance summary including tracking status"""
+        """Get detailed performance summary including jitter status"""
         if not self.tracking_started:
             return f"""
 PERFORMANCE SUMMARY
@@ -2384,6 +2501,7 @@ PERFORMANCE SUMMARY
 Status: Waiting for ready position
 Preparation Frames: {self.pre_ready_frames}
 Score: {int(self.current_points)}/100 (not yet tracking)
+Jitter Paused: {self.paused_due_to_jitter}
 
 Ready for exercise tracking once proper position is assumed.
             """
@@ -2413,6 +2531,7 @@ Final Score: {int(self.current_points)}/100 ({((self.current_points/self.startin
 Total Deductions: {total_deductions} points
 Preparation Frames: {self.pre_ready_frames}
 Tracking Frames: {self.frame_count}
+Jitter Paused: {self.paused_due_to_jitter}
 
 Breakdown:
 - Form Issues: -{angle_deductions} points
@@ -2435,6 +2554,7 @@ Half Reps: {rep_summary['half_reps']}
 Current Phase: {rep_summary['current_phase']}
 Tracking Angle: {rep_summary['tracking_angle']}
 Angle Range: {rep_summary['current_range']}
+Jitter Paused: {rep_summary.get('jitter_paused', False)}
         """
         
         rom_summary = self.get_rom_violations_summary()
@@ -2452,101 +2572,23 @@ Per Joint:"""
 - {joint_name.replace('_', ' ').title()}: {violations['insufficient_contraction']} contraction, {violations['insufficient_extension']} extension issues"""
 
         return base_report + rep_report + rom_report
-def draw_score_display_with_tracking_status(image, fitness_scorer, position=(900, 50)):
-    """
-    Enhanced score display that shows tracking status
-    """
-    score_info = fitness_scorer.get_score_display()
-    tracking_started = score_info.get('tracking_started', False)
-    x, y = position
-    
-    # Create semi-transparent background
-    overlay = image.copy()
-    cv2.rectangle(overlay, (x-5, y-25), (x+250, y+80), (0, 0, 0), -1)
-    image = cv2.addWeighted(image, 0.7, overlay, 0.3, 0)
-    
-    # Draw score text with tracking status
-    if tracking_started:
-        cv2.putText(image, score_info['display_text'], (x, y), 
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, score_info['color'], 2)
-        status_text = "🎯 TRACKING ACTIVE"
-        status_color = (0, 255, 0)
-    else:
-        cv2.putText(image, score_info['display_text'], (x, y), 
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (128, 128, 128), 2)
-        status_text = "⏳ WAITING FOR READY"
-        status_color = (255, 255, 0)
-    
-    # Draw tracking status
-    cv2.putText(image, status_text, (x, y - 15), 
-                cv2.FONT_HERSHEY_SIMPLEX, 0.4, status_color, 1)
-    
-    # Draw progress bar (only when tracking)
-    if tracking_started:
-        bar_width = 200
-        bar_height = 10
-        bar_x = x
-        bar_y = y + 15
-        
-        # Background bar
-        cv2.rectangle(image, (bar_x, bar_y), (bar_x + bar_width, bar_y + bar_height), (64, 64, 64), -1)
-        
-        # Progress bar
-        progress_width = int((score_info['percentage'] / 100) * bar_width)
-        cv2.rectangle(image, (bar_x, bar_y), (bar_x + progress_width, bar_y + bar_height), score_info['color'], -1)
-        
-        # Progress text
-        cv2.putText(image, f"{score_info['percentage']:.1f}%", (bar_x + bar_width + 10, bar_y + 8), 
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255, 255, 255), 1)
-    else:
-        # Show "waiting" indicator instead of progress bar
-        cv2.putText(image, "Score tracking will begin when ready position is detected", 
-                    (x, y + 25), cv2.FONT_HERSHEY_SIMPLEX, 0.35, (200, 200, 200), 1)
-    
-    return image
 
-def draw_feedback_messages(image, feedback_messages, position=(750, 150)):
-    """
-    Draw feedback messages on the image
+    def get_rom_violations_summary(self):
+        return {
+            'violations': self.rom_violations,
+            'total_contraction_violations': sum([v['insufficient_contraction'] for v in self.rom_violations.values()]),
+            'total_extension_violations': sum([v['insufficient_extension'] for v in self.rom_violations.values()]),
+        }
     
-    Args:
-        image: OpenCV image  
-        feedback_messages: List of feedback strings
-        position: (x, y) starting position
-    """
-    if not feedback_messages:
-        return image
+
     
-    x, y_start = position
-    line_height = 25
-    
-    # Create background
-    bg_height = len(feedback_messages) * line_height + 10
-    overlay = image.copy()
-    cv2.rectangle(overlay, (x-5, y_start-20), (x+500, y_start + bg_height), (0, 0, 0), -1)
-    image = cv2.addWeighted(image, 0.7, overlay, 0.3, 0)
-    
-    # Draw messages
-    for i, message in enumerate(feedback_messages):
-        y = y_start + (i * line_height)
-        
-        # Color based on message type
-        if "CRITICAL" in message:
-            color = (0, 0, 255)  # Red
-        elif "Form" in message:
-            color = (0, 165, 255)  # Orange
-        elif "Speed" in message:
-            color = (0, 255, 255)  # Yellow
-        else:
-            color = (255, 255, 255)  # White
-        
-        cv2.putText(image, message, (x, y), 
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 1)
-    
-    return image
+
 
 
 class VelocityTracker:
+    """
+    ENHANCED: Now integrates Simple Jitter Detection Pause System with all other components
+    """
     def __init__(self, smoothing_window=5):
         self.previous_keypoints = None
         self.previous_timestamp = None
@@ -2565,34 +2607,51 @@ class VelocityTracker:
         self.last_confidences = None
         self.frame_count = 0
         
-        # NEW: Erratic jitter detection system
-        self.jitter_detector = ErraticJitterDetector(
-            extreme_multiplier=1.065,  # Extreme speed is 15x the fast threshold
-            jitter_window=2,          # Look at 5 consecutive frames
-            keypoint_threshold=0.1,   # 60% of keypoints must be erratic
-            temporal_smoothing=3      # Smooth jitter detection over 3 frames
+        # NEW: Simple Jitter Detection Pause System integration
+        self.jitter_pause_system = SimpleJitterPauseSystem(
+            extreme_multiplier=3.0,    # 3x fast threshold = extreme
+            stability_frames=5,        # 3 stable frames to resume
+            min_erratic_keypoints=2    # 2+ erratic keypoints = pause
         )
         
-        # NEW: Track erratic periods for other functions to avoid processing
-        self.current_frame_erratic = False
-        self.erratic_period_history = []  # Track recent erratic classifications
-        self.erratic_period_smoothing = 3  # Smooth erratic periods over N frames
-
+        # Connect jitter system to all components
+        self._connect_jitter_system()
+        
+        print("VelocityTracker initialized with integrated jitter detection")
+        print("Jitter system will pause all functions during erratic motion")
+    
+    def _connect_jitter_system(self):
+        """Connect the jitter pause system to all components"""
+        # Connect to RPE Calculator
+        if hasattr(self.rpe_calculator, 'set_jitter_pause_system'):
+            self.rpe_calculator.set_jitter_pause_system(self.jitter_pause_system)
+        
+        # Connect to Fitness Scorer (which will also connect to RepCounter)
+        if hasattr(self.fitness_scorer, 'set_jitter_pause_system'):
+            self.fitness_scorer.set_jitter_pause_system(self.jitter_pause_system)
+        
+        print("Jitter pause system connected to all components")
+    
     def get_integrated_rpe_analysis(self, rep_counter):
         """
         Get RPE analysis using integrated data from all system components
-        ENHANCED: Now skips analysis during erratic periods
+        ENHANCED: Now properly handles jitter pause status
         """
         try:
-            # NEW: Skip RPE analysis during erratic periods
-            if self.is_current_period_erratic():
+            # Check if any component is paused due to jitter
+            if (hasattr(self.rpe_calculator, 'paused_due_to_jitter') and self.rpe_calculator.paused_due_to_jitter):
+                jitter_stats = self.jitter_pause_system.get_statistics()
                 return {
-                    'rpe': None,  # No RPE during erratic periods
-                    'confidence': 'erratic_motion',
-                    'interpretation': 'Skipping RPE calculation due to erratic pose estimation',
+                    'rpe': None,
+                    'confidence': 'paused_jitter',
+                    'interpretation': f'RPE calculation paused due to motion jitter (Event #{jitter_stats["extreme_speed_events"]})',
                     'breakdown': {},
                     'fatigue_indicators': [],
-                    'data_sources': {'status': 'paused_due_to_jitter'}
+                    'data_sources': {
+                        'status': 'paused_due_to_jitter',
+                        'jitter_stats': jitter_stats,
+                        'resume_frames_needed': jitter_stats['settings']['stability_frames'] if jitter_stats['current_status'] == 'PAUSED' else 0
+                    }
                 }
             
             # Get all required data
@@ -2602,7 +2661,7 @@ class VelocityTracker:
             body_measurements = {'reference_scale': self.body_calculator.reference_scale}
             current_velocities = self.velocity_history[-5:] if len(self.velocity_history) >= 5 else self.velocity_history
             
-            # NEW: Get additional data needed for ready position detection
+            # Get additional data needed for ready position detection
             angles = getattr(self, 'last_angles', None)
             keypoints = getattr(self, 'last_keypoints', None)  
             confidences = getattr(self, 'last_confidences', None)
@@ -2628,6 +2687,10 @@ class VelocityTracker:
                 velocity_tracker=self
             )
             
+            # Add jitter status to result
+            jitter_stats = self.jitter_pause_system.get_statistics()
+            rpe_result['data_sources']['jitter_system_stats'] = jitter_stats
+            
             return rpe_result
             
         except Exception as e:
@@ -2642,7 +2705,7 @@ class VelocityTracker:
             }
 
     def calculate_velocities(self, current_keypoints, current_timestamp, confidences, confidence_threshold=0.3):
-        """Calculate velocities for all keypoints with adaptive scaling and jitter detection"""
+        """Calculate velocities with integrated jitter detection and pause system"""
         velocities = {}
         
         # Store the current frame data for RPE ready position detection
@@ -2655,16 +2718,12 @@ class VelocityTracker:
             # First frame - initialize
             self.previous_keypoints = current_keypoints.copy()
             self.previous_timestamp = current_timestamp
-            # IMPORTANT: Calculate body proportions even on first frame
+            # Update body proportions even on first frame
             self.body_calculator.update_body_proportions(current_keypoints, confidences, confidence_threshold)
             
             # Calculate angles for the first frame too (needed for RPE)
             if current_keypoints is not None and confidences is not None:
                 self.last_angles = calculate_body_angles(current_keypoints, confidences, confidence_threshold)
-            
-            # NEW: Initialize jitter detector with first frame
-            self.current_frame_erratic = False
-            self.erratic_period_history.append(False)
             
             return velocities
         
@@ -2695,16 +2754,10 @@ class VelocityTracker:
             'left_toes', 'right_toes'
         ]
         
-        # NEW: Track erratic keypoints for this frame
-        erratic_keypoints = []
-        total_valid_keypoints = 0
-        
         for i, (current_point, prev_point, conf, name) in enumerate(
             zip(current_keypoints, self.previous_keypoints, confidences, keypoint_names)
         ):
             if conf > confidence_threshold:
-                total_valid_keypoints += 1
-                
                 # Calculate displacement
                 dx = current_point[0] - prev_point[0]
                 dy = current_point[1] - prev_point[1]
@@ -2716,32 +2769,22 @@ class VelocityTracker:
                 # Calculate speed (magnitude)
                 speed = np.sqrt(vx**2 + vy**2)
                 
-                # ENHANCED: Classify speed using adaptive thresholds INCLUDING extreme category
-                speed_category, is_erratic = self._classify_speed_with_jitter_detection(
-                    speed, velocity_thresholds
-                )
-                
-                # NEW: Track erratic keypoints
-                if is_erratic:
-                    erratic_keypoints.append(name)
+                # Classify speed using adaptive thresholds
+                speed_category = self._classify_speed(speed, velocity_thresholds)
                 
                 velocities[name] = {
                     'vx': vx,
                     'vy': vy, 
                     'speed': speed,
                     'speed_category': speed_category,
-                    'is_erratic': is_erratic,  # NEW: Flag individual keypoints as erratic
                     'confidence': conf,
                     'thresholds': velocity_thresholds
                 }
         
-        # NEW: Determine if current frame is erratic using jitter detector
-        self.current_frame_erratic = self.jitter_detector.is_frame_erratic(
-            erratic_keypoints, total_valid_keypoints, velocities
+        # NEW: Check jitter status using Simple Jitter Detection Pause System
+        jitter_status = self.jitter_pause_system.check_frame_for_extreme_speeds(
+            velocities, velocity_thresholds
         )
-        
-        # NEW: Update erratic period history for temporal smoothing
-        self._update_erratic_period_history()
         
         # Store current as previous for next iteration
         self.previous_keypoints = current_keypoints.copy()
@@ -2752,103 +2795,34 @@ class VelocityTracker:
         if len(self.velocity_history) > self.smoothing_window:
             self.velocity_history.pop(0)
         
-        # NEW: Skip smoothing during erratic periods to avoid contamination
-        if self.is_current_period_erratic():
-            # Return raw velocities without smoothing during erratic periods
+        # NEW: Skip smoothing during jitter periods to avoid contamination
+        if jitter_status['should_pause_functions']:
+            # Return raw velocities without smoothing during jitter periods
+            # Also add jitter status information
+            velocities['_jitter_status'] = jitter_status
+            velocities['_pause_functions'] = True
             return velocities
         else:
-            return self._smooth_velocities()
+            # Normal processing - apply smoothing and return
+            smoothed_velocities = self._smooth_velocities()
+            smoothed_velocities['_jitter_status'] = jitter_status
+            smoothed_velocities['_pause_functions'] = False
+            return smoothed_velocities
 
-    def _classify_speed_with_jitter_detection(self, speed, velocity_thresholds):
-        """
-        Classify speed into categories including new 'extreme' category for jitter detection
-        
-        Args:
-            speed: Speed magnitude in pixels/second
-            velocity_thresholds: Dict with 'slow', 'medium', 'fast' thresholds
-            
-        Returns:
-            tuple: (speed_category, is_erratic)
-        """
-        # NEW: Calculate extreme threshold for jitter detection
-        extreme_threshold = self.jitter_detector.get_extreme_threshold(velocity_thresholds['fast'])
-        
+    def _classify_speed(self, speed, velocity_thresholds):
+        """Classify speed into categories"""
         if speed < velocity_thresholds['slow']:
-            return 'slow', False
+            return 'slow'
         elif speed < velocity_thresholds['medium']:
-            return 'medium', False
+            return 'medium'
         elif speed < velocity_thresholds['fast']:
-            return 'fast', False
-        elif speed < extreme_threshold:
-            return 'very_fast', False  # NEW: Very fast but still plausible human movement
+            return 'fast'
         else:
-            return 'extreme', True     # NEW: Extreme speeds indicate erratic jitter
+            # Speeds above fast threshold will be caught by jitter detection
+            return 'very_fast'
 
-    def _update_erratic_period_history(self):
-        """
-        Update the history of erratic period classifications with temporal smoothing
-        """
-        # Add current frame's erratic status
-        self.erratic_period_history.append(self.current_frame_erratic)
-        
-        # Maintain smoothing window
-        if len(self.erratic_period_history) > self.erratic_period_smoothing:
-            self.erratic_period_history.pop(0)
-
-    def is_current_period_erratic(self):
-        """
-        Determine if the current time period should be considered erratic
-        Uses temporal smoothing to avoid false positives from single erratic frames
-        
-        Returns:
-            bool: True if current period is erratic and should pause other calculations
-        """
-        if len(self.erratic_period_history) == 0:
-            return False
-            
-        # Use majority voting over the smoothing window
-        erratic_count = sum(self.erratic_period_history)
-        total_frames = len(self.erratic_period_history)
-        
-        # Consider period erratic if more than 50% of recent frames are erratic
-        return erratic_count > (total_frames * 0.5)
-
-    def get_jitter_status(self):
-        """
-        Get detailed information about current jitter detection status
-        
-        Returns:
-            dict: Comprehensive jitter status information
-        """
-        return {
-            'current_frame_erratic': self.current_frame_erratic,
-            'current_period_erratic': self.is_current_period_erratic(),
-            'erratic_history': self.erratic_period_history.copy(),
-            'jitter_detector_stats': self.jitter_detector.get_detection_stats(),
-            'recommendations': self._get_jitter_recommendations()
-        }
-
-    def _get_jitter_recommendations(self):
-        """
-        Provide recommendations based on jitter detection status
-        """
-        if self.is_current_period_erratic():
-            return [
-                "Pausing motion analysis due to erratic pose estimation",
-                "Check camera stability and lighting conditions", 
-                "Ensure subject is clearly visible and not occluded",
-                "Consider adjusting pose estimation confidence thresholds"
-            ]
-        elif self.current_frame_erratic:
-            return [
-                "Temporary pose estimation instability detected",
-                "Continuing analysis with caution"
-            ]
-        else:
-            return ["Pose estimation stable, all systems operational"]
-    
     def _smooth_velocities(self):
-        """Apply smoothing to velocity measurements - ENHANCED VERSION with jitter awareness"""
+        """Apply smoothing to velocity measurements"""
         if len(self.velocity_history) < 2:
             return self.velocity_history[-1] if self.velocity_history else {}
         
@@ -2857,34 +2831,30 @@ class VelocityTracker:
         # Get all keypoint names from recent history
         all_keypoints = set()
         for frame_velocities in self.velocity_history:
-            all_keypoints.update(frame_velocities.keys())
+            # Skip special keys that start with underscore
+            regular_keypoints = {k: v for k, v in frame_velocities.items() if not k.startswith('_')}
+            all_keypoints.update(regular_keypoints.keys())
         
         for keypoint_name in all_keypoints:
             vx_values = []
             vy_values = []
             speed_values = []
-            categories = []
             
-            # NEW: Filter out erratic frames from smoothing calculation
+            # Collect values from recent history
             for frame_velocities in self.velocity_history:
-                if keypoint_name in frame_velocities:
+                if keypoint_name in frame_velocities and not keypoint_name.startswith('_'):
                     keypoint_data = frame_velocities[keypoint_name]
-                    
-                    # Skip erratic keypoints in smoothing to avoid contamination
-                    if not keypoint_data.get('is_erratic', False):
-                        vx_values.append(keypoint_data['vx'])
-                        vy_values.append(keypoint_data['vy'])
-                        speed_values.append(keypoint_data['speed'])
-                        if 'speed_category' in keypoint_data:
-                            categories.append(keypoint_data['speed_category'])
+                    vx_values.append(keypoint_data['vx'])
+                    vy_values.append(keypoint_data['vy'])
+                    speed_values.append(keypoint_data['speed'])
             
-            if vx_values:  # Only smooth if we have non-erratic data
+            if vx_values:  # Only smooth if we have data
                 # Find the most recent confidence value and thresholds
                 recent_confidence = 0.0
                 recent_thresholds = {'slow': 50, 'medium': 150, 'fast': 300}  # fallback
                 
                 for frame_velocities in reversed(self.velocity_history):
-                    if keypoint_name in frame_velocities:
+                    if keypoint_name in frame_velocities and not keypoint_name.startswith('_'):
                         recent_confidence = frame_velocities[keypoint_name]['confidence']
                         if 'thresholds' in frame_velocities[keypoint_name]:
                             recent_thresholds = frame_velocities[keypoint_name]['thresholds']
@@ -2892,226 +2862,175 @@ class VelocityTracker:
                 
                 # Smooth the speed and reclassify
                 smoothed_speed = np.mean(speed_values)
-                
-                # Classify smoothed speed (should not be extreme after filtering)
-                smoothed_category, _ = self._classify_speed_with_jitter_detection(
-                    smoothed_speed, recent_thresholds
-                )
+                smoothed_category = self._classify_speed(smoothed_speed, recent_thresholds)
                 
                 smoothed[keypoint_name] = {
                     'vx': np.mean(vx_values),
                     'vy': np.mean(vy_values),
                     'speed': smoothed_speed,
                     'speed_category': smoothed_category,
-                    'is_erratic': False,  # Smoothed values should not be erratic
                     'confidence': recent_confidence,
                     'thresholds': recent_thresholds
                 }
         
         return smoothed
 
+    def get_jitter_status(self):
+        """Get current jitter detection status"""
+        return {
+            'jitter_system_stats': self.jitter_pause_system.get_statistics(),
+            'current_status': self.jitter_pause_system.get_statistics()['current_status'],
+            'recommendations': self._get_jitter_recommendations()
+        }
 
-class ErraticJitterDetector:
+    def _get_jitter_recommendations(self):
+        """Provide recommendations based on jitter detection status"""
+        stats = self.jitter_pause_system.get_statistics()
+        
+        if stats['current_status'] == 'PAUSED':
+            return [
+                "Functions paused due to extreme pose estimation speeds",
+                "Check camera stability and lighting conditions", 
+                "Ensure subject is clearly visible and not occluded",
+                "Movement will resume automatically when motion stabilizes"
+            ]
+        else:
+            return ["Pose estimation stable, all systems operational"]
+
+    def is_current_period_erratic(self):
+        """Check if functions should be paused due to jitter"""
+        stats = self.jitter_pause_system.get_statistics()
+        return stats['current_status'] == 'PAUSED'
+
+
+class SimpleJitterPauseSystem:
     """
-    Dedicated class for detecting erratic jitters in pose estimation
-    
-    This class implements sophisticated logic to distinguish between:
-    1. Normal human movement (even fast movements)
-    2. Erratic pose estimation artifacts that create impossible motions
+    Simplified jitter detection system that pauses fitness functions when extreme speeds are detected
+    and resumes them when motion stabilizes.
     """
     
-    def __init__(self, extreme_multiplier=5.0, jitter_window=3, keypoint_threshold=0.3, temporal_smoothing=3):
+    def __init__(self, extreme_multiplier=3.0, stability_frames=5, min_erratic_keypoints=2):
         """
-        Initialize the erratic jitter detector
+        Initialize the simple jitter pause system
         
         Args:
-            extreme_multiplier: Multiplier for fast threshold to create extreme threshold
-            jitter_window: Number of frames to analyze for jitter patterns
-            keypoint_threshold: Fraction of keypoints that must be erratic to flag frame
-            temporal_smoothing: Number of frames for temporal smoothing of detections
+            extreme_multiplier: Multiplier for fast threshold to create extreme threshold (3-5x recommended)
+            stability_frames: Number of consecutive stable frames needed to resume
+            min_erratic_keypoints: Minimum number of keypoints with extreme speed to trigger pause
         """
         self.extreme_multiplier = extreme_multiplier
-        self.jitter_window = jitter_window
-        self.keypoint_threshold = keypoint_threshold
-        self.temporal_smoothing = temporal_smoothing
+        self.stability_frames = stability_frames
+        self.min_erratic_keypoints = min_erratic_keypoints
         
-        # Track detection statistics
-        self.total_frames_processed = 0
-        self.erratic_frames_detected = 0
-        self.erratic_keypoint_history = []  # Track which keypoints are frequently erratic
+        # State tracking
+        self.is_paused = False
+        self.stable_frame_count = 0
+        self.current_frame_has_extreme_speeds = False
         
-    def get_extreme_threshold(self, fast_threshold):
+        # Statistics for debugging
+        self.total_frames = 0
+        self.paused_frames = 0
+        self.extreme_speed_events = 0
+        
+        print(f"SimpleJitterPauseSystem initialized:")
+        print(f"  - Extreme threshold: {extreme_multiplier}x fast speed")
+        print(f"  - Stability frames needed: {stability_frames}")
+        print(f"  - Min erratic keypoints: {min_erratic_keypoints}")
+        
+    def check_frame_for_extreme_speeds(self, velocities, velocity_thresholds):
         """
-        Calculate the extreme speed threshold above which motion is considered erratic
+        Check if current frame has extreme speeds that should trigger a pause
         
         Args:
-            fast_threshold: The current adaptive 'fast' threshold in pixels/second
+            velocities: Dict of velocity data from your velocity tracker
+            velocity_thresholds: Dict with 'slow', 'medium', 'fast' thresholds
             
         Returns:
-            float: Extreme threshold for erratic motion detection
+            dict: Status information including whether to pause functions
         """
-        return fast_threshold * self.extreme_multiplier
+        self.total_frames += 1
         
-    def is_frame_erratic(self, erratic_keypoints, total_valid_keypoints, velocities):
-        """
-        Determine if the current frame contains erratic motion
+        # Calculate extreme threshold
+        extreme_threshold = velocity_thresholds.get('fast', 300) * self.extreme_multiplier
         
-        This function implements multiple checks:
-        1. Percentage of keypoints with extreme speeds
-        2. Spatial consistency (nearby keypoints should move similarly)
-        3. Temporal consistency (dramatic changes from previous frames)
+        # Check for extreme speeds
+        extreme_speed_keypoints = []
+        total_valid_keypoints = 0
         
-        Args:
-            erratic_keypoints: List of keypoint names flagged as erratic
-            total_valid_keypoints: Total number of valid keypoints in frame
-            velocities: Dict of all velocity data for the frame
+        for keypoint_name, velocity_data in velocities.items():
+            # Skip special keys that start with underscore
+            if keypoint_name.startswith('_'):
+                continue
+                
+            if velocity_data.get('confidence', 0) > 0.3:  # Only check confident keypoints
+                total_valid_keypoints += 1
+                speed = velocity_data.get('speed', 0)
+                
+                if speed > extreme_threshold:
+                    extreme_speed_keypoints.append({
+                        'name': keypoint_name,
+                        'speed': speed,
+                        'threshold': extreme_threshold
+                    })
+        
+        # Determine if this frame has extreme speeds
+        self.current_frame_has_extreme_speeds = len(extreme_speed_keypoints) >= self.min_erratic_keypoints
+        
+        # Update pause state
+        if self.current_frame_has_extreme_speeds:
+            if not self.is_paused:
+                self.extreme_speed_events += 1
+                print(f"⚠️  PAUSING FUNCTIONS: Detected {len(extreme_speed_keypoints)} keypoints with extreme speeds (Event #{self.extreme_speed_events})")
+                for kp in extreme_speed_keypoints[:3]:  # Show first 3
+                    print(f"   {kp['name']}: {kp['speed']:.1f} px/s (threshold: {kp['threshold']:.1f})")
             
-        Returns:
-            bool: True if frame should be classified as erratic
-        """
-        self.total_frames_processed += 1
+            self.is_paused = True
+            self.stable_frame_count = 0  # Reset stability counter
+        else:
+            # No extreme speeds in this frame
+            if self.is_paused:
+                self.stable_frame_count += 1
+                
+                # Resume if we've had enough stable frames
+                if self.stable_frame_count >= self.stability_frames:
+                    print(f"✅ RESUMING FUNCTIONS: Motion stable for {self.stability_frames} consecutive frames")
+                    self.is_paused = False
+                    self.stable_frame_count = 0
         
-        if total_valid_keypoints == 0:
-            return False  # Can't determine without keypoints
-        
-        # Check 1: Percentage threshold
-        erratic_percentage = len(erratic_keypoints) / total_valid_keypoints
-        percentage_test = erratic_percentage >= self.keypoint_threshold
-        
-        # Check 2: Spatial consistency test
-        spatial_test = self._check_spatial_consistency(erratic_keypoints, velocities)
-        
-        # Check 3: Temporal pattern test (requires history)
-        temporal_test = self._check_temporal_patterns(erratic_keypoints)
-        
-        # Frame is erratic if it fails multiple tests
-        is_erratic = percentage_test and (spatial_test or temporal_test)
-        
-        if is_erratic:
-            self.erratic_frames_detected += 1
-            
-        # Update erratic keypoint history for temporal analysis
-        self._update_keypoint_history(erratic_keypoints)
-        
-        return is_erratic
-    
-    def _check_spatial_consistency(self, erratic_keypoints, velocities):
-        """
-        Check if erratic keypoints are spatially clustered (indicating real motion)
-        or scattered (indicating pose estimation artifacts)
-        
-        Args:
-            erratic_keypoints: List of keypoint names flagged as erratic
-            velocities: Dict of velocity data
-            
-        Returns:
-            bool: True if spatial pattern suggests erratic artifacts
-        """
-        if len(erratic_keypoints) < 2:
-            return False
-            
-        # Define spatial groups of keypoints that should move together
-        spatial_groups = {
-            'head': ['nose', 'left_eye', 'right_eye', 'left_ear', 'right_ear'],
-            'torso': ['neck', 'chest', 'mid_spine', 'lower_spine'],
-            'left_arm': ['left_shoulder', 'left_elbow', 'left_wrist'],
-            'right_arm': ['right_shoulder', 'right_elbow', 'right_wrist'],
-            'left_leg': ['left_hip', 'left_knee', 'left_ankle', 'left_toes'],
-            'right_leg': ['right_hip', 'right_knee', 'right_ankle', 'right_toes']
-        }
-        
-        # Count erratic keypoints per group
-        group_erratic_counts = {group: 0 for group in spatial_groups}
-        total_group_keypoints = {group: 0 for group in spatial_groups}
-        
-        for group, keypoints_in_group in spatial_groups.items():
-            for keypoint in keypoints_in_group:
-                if keypoint in velocities:
-                    total_group_keypoints[group] += 1
-                    if keypoint in erratic_keypoints:
-                        group_erratic_counts[group] += 1
-        
-        # Check if erratic keypoints are scattered across groups (bad sign)
-        groups_with_erratic = sum(1 for count in group_erratic_counts.values() if count > 0)
-        groups_with_keypoints = sum(1 for count in total_group_keypoints.values() if count > 0)
-        
-        if groups_with_keypoints == 0:
-            return False
-            
-        # If erratic keypoints are in >75% of active groups, likely pose estimation error
-        scatter_ratio = groups_with_erratic / groups_with_keypoints
-        return scatter_ratio > 0.75
-    
-    def _check_temporal_patterns(self, erratic_keypoints):
-        """
-        Check temporal patterns to distinguish between consistent motion and jitter
-        
-        Args:
-            erratic_keypoints: Current frame's erratic keypoints
-            
-        Returns:
-            bool: True if temporal pattern suggests erratic artifacts
-        """
-        if len(self.erratic_keypoint_history) < 2:
-            return False
-            
-        # Look for keypoints that are frequently erratic (jitter pattern)
-        frequent_erratic_keypoints = []
-        
-        for keypoint in erratic_keypoints:
-            # Count how often this keypoint was erratic in recent history
-            erratic_count = sum(1 for frame in self.erratic_keypoint_history 
-                              if keypoint in frame)
-            
-            # If keypoint is erratic in >60% of recent frames, it's likely jitter
-            if erratic_count > len(self.erratic_keypoint_history) * 0.6:
-                frequent_erratic_keypoints.append(keypoint)
-        
-        # If many keypoints show jitter patterns, frame is likely erratic
-        return len(frequent_erratic_keypoints) > len(erratic_keypoints) * 0.4
-    
-    def _update_keypoint_history(self, erratic_keypoints):
-        """Update history of erratic keypoints for temporal analysis"""
-        self.erratic_keypoint_history.append(set(erratic_keypoints))
-        
-        # Maintain history window
-        if len(self.erratic_keypoint_history) > self.jitter_window:
-            self.erratic_keypoint_history.pop(0)
-    
-    def get_detection_stats(self):
-        """
-        Get statistics about jitter detection performance
-        
-        Returns:
-            dict: Detection statistics and diagnostics
-        """
-        erratic_rate = (self.erratic_frames_detected / self.total_frames_processed 
-                       if self.total_frames_processed > 0 else 0)
-        
-        # Analyze most problematic keypoints
-        keypoint_problem_counts = {}
-        for frame_erratic_keypoints in self.erratic_keypoint_history:
-            for keypoint in frame_erratic_keypoints:
-                keypoint_problem_counts[keypoint] = keypoint_problem_counts.get(keypoint, 0) + 1
-        
-        most_problematic = sorted(keypoint_problem_counts.items(), 
-                                key=lambda x: x[1], reverse=True)[:5]
+        # Update statistics
+        if self.is_paused:
+            self.paused_frames += 1
         
         return {
-            'total_frames': self.total_frames_processed,
-            'erratic_frames': self.erratic_frames_detected,
-            'erratic_rate': erratic_rate,
-            'most_problematic_keypoints': most_problematic,
-            'detection_settings': {
+            'should_pause_functions': self.is_paused,
+            'current_frame_extreme': self.current_frame_has_extreme_speeds,
+            'extreme_keypoints': extreme_speed_keypoints,
+            'extreme_threshold': extreme_threshold,
+            'stable_frames_needed': max(0, self.stability_frames - self.stable_frame_count) if self.is_paused else 0,
+            'status': 'PAUSED' if self.is_paused else 'ACTIVE'
+        }
+    
+    def get_statistics(self):
+        """Get system statistics for debugging and monitoring"""
+        pause_rate = (self.paused_frames / self.total_frames) if self.total_frames > 0 else 0
+        
+        return {
+            'total_frames': self.total_frames,
+            'paused_frames': self.paused_frames,
+            'pause_rate': pause_rate,
+            'extreme_speed_events': self.extreme_speed_events,
+            'current_status': 'PAUSED' if self.is_paused else 'ACTIVE',
+            'stable_frames_counted': self.stable_frame_count,
+            'settings': {
                 'extreme_multiplier': self.extreme_multiplier,
-                'keypoint_threshold': self.keypoint_threshold,
-                'jitter_window': self.jitter_window
+                'stability_frames': self.stability_frames,
+                'min_erratic_keypoints': self.min_erratic_keypoints
             }
         }
 
 
 class BodyProportionCalculator:
-    """Calculate body proportions for adaptive velocity scaling - ENHANCED with extreme thresholds"""
+    """Calculate body proportions for adaptive velocity scaling"""
     
     def __init__(self):
         self.shoulder_elbow_distances = []
@@ -3124,14 +3043,8 @@ class BodyProportionCalculator:
         return np.sqrt((point1[0] - point2[0])**2 + (point1[1] - point2[1])**2)
     
     def update_body_proportions(self, keypoints, confidences, confidence_threshold=0.3):
-        """Calculate current body proportions - same as before"""
+        """Calculate current body proportions"""
         measurements = {}
-        
-        # Keypoint indices for reference:
-        # 5: left_shoulder, 6: right_shoulder
-        # 7: left_elbow, 8: right_elbow  
-        # 11: left_hip, 12: right_hip
-        # 13: left_knee, 14: right_knee
         
         # Calculate shoulder to elbow distances (both sides)
         shoulder_elbow_distances = []
@@ -3191,7 +3104,7 @@ class BodyProportionCalculator:
         return measurements
     
     def _calculate_reference_scale(self):
-        """Calculate a reference scale based on smoothed body measurements - same as before"""
+        """Calculate a reference scale based on smoothed body measurements"""
         scale_components = []
         
         # Use smoothed shoulder-elbow distance
@@ -3216,10 +3129,7 @@ class BodyProportionCalculator:
         return reference_scale
     
     def get_velocity_thresholds(self, base_slow=0.45, base_medium=2.15, base_fast=3.25):
-        """
-        Calculate adaptive velocity thresholds based on current body scale
-        SAME AS BEFORE - the extreme threshold is calculated by ErraticJitterDetector
-        """
+        """Calculate adaptive velocity thresholds based on current body scale"""
         if self.reference_scale is None:
             # Fallback to default pixel-based thresholds
             return {
@@ -3236,181 +3146,77 @@ class BodyProportionCalculator:
         }
 
 
-def velocity_info_box(image, velocities, body_measurements=None, jitter_status=None, position_offset=(200, 10)):
-    """
-    Display velocity information on image with adaptive scaling info and jitter detection status
-    ENHANCED: Now shows jitter detection information
-    """
-    x_offset, y_start = position_offset
-    y_offset = 12
-    y_current = y_start
-    
-    # Sort by speed for better visualization
-    sorted_velocities = sorted(velocities.items(), 
-                              key=lambda x: x[1]['speed'], reverse=True)
-    
-    # Display title with reference scale info
-    cv2.putText(image, "Adaptive Velocities:", (x_offset, y_current), 
-                cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255, 255, 255), 1)
-    y_current += y_offset + 5
-    
-    # NEW: Display jitter detection status
-    if jitter_status:
-        if jitter_status.get('current_period_erratic', False):
-            status_text = "STATUS: ERRATIC PERIOD - PAUSED"
-            status_color = (0, 0, 255)  # Red
-        elif jitter_status.get('current_frame_erratic', False):
-            status_text = "STATUS: Temporary Instability"
-            status_color = (0, 165, 255)  # Orange
-        else:
-            status_text = "STATUS: Stable"
-            status_color = (0, 255, 0)  # Green
-            
-        cv2.putText(image, status_text, (x_offset, y_current), 
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.35, status_color, 1)
-        y_current += y_offset + 3
-    
-    # Display body scale info
-    if body_measurements and body_measurements.get('reference_scale') is not None:
-        scale_value = body_measurements['reference_scale']
-        scale_text = f"Body Scale: {scale_value:.1f}px"
-        scale_color = (0, 255, 0)  # Green when available
-    else:
-        scale_text = "Body Scale: Calculating..."
-        scale_color = (0, 255, 255)  # Yellow when calculating
-    
-    cv2.putText(image, scale_text, (x_offset, y_current), 
-                cv2.FONT_HERSHEY_SIMPLEX, 0.3, scale_color, 1)
-    y_current += y_offset
-    
-    # Display thresholds including extreme threshold
-    if velocities:
-        first_velocity = next(iter(velocities.values()))
-        if 'thresholds' in first_velocity:
-            thresholds = first_velocity['thresholds']
-            # NEW: Show extreme threshold if jitter_status available
-            if jitter_status and 'jitter_detector_stats' in jitter_status:
-                detector_stats = jitter_status['jitter_detector_stats']
-                extreme_multiplier = detector_stats['detection_settings']['extreme_multiplier']
-                extreme_threshold = thresholds['fast'] * extreme_multiplier
-                threshold_text = f"Thresh: S<{thresholds['slow']:.0f} M<{thresholds['medium']:.0f} F<{thresholds['fast']:.0f} E>{extreme_threshold:.0f}"
-            else:
-                threshold_text = f"Thresholds: S<{thresholds['slow']:.0f} M<{thresholds['medium']:.0f} F>{thresholds['medium']:.0f}"
-            
-            cv2.putText(image, threshold_text, (x_offset, y_current), 
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.25, (92, 92, 205), 1)
-            y_current += y_offset + 3
-    
-    # NEW: Skip displaying individual velocities during erratic periods
-    if jitter_status and jitter_status.get('current_period_erratic', False):
-        erratic_text = "Motion analysis paused due to erratic pose estimation"
-        cv2.putText(image, erratic_text, (x_offset, y_current), 
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.3, (0, 0, 255), 1)
-        y_current += y_offset
-        
-        # Show number of erratic keypoints
-        erratic_count = sum(1 for _, velocity in velocities.items() 
-                          if velocity.get('is_erratic', False))
-        erratic_info = f"Erratic keypoints: {erratic_count}/{len(velocities)}"
-        cv2.putText(image, erratic_info, (x_offset, y_current), 
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.3, (0, 100, 255), 1)
-        return  # Exit early during erratic periods
-    
-    # Display keypoint velocities with enhanced color coding
-    for i, (keypoint_name, velocity) in enumerate(sorted_velocities):
-        speed = velocity['speed']
-        category = velocity.get('speed_category', 'unknown')
-        is_erratic = velocity.get('is_erratic', False)
-        
-        # NEW: Enhanced color coding including erratic detection
-        if is_erratic or category == 'extreme':
-            color = (9, 10, 12)         # Black for extreme/erratic
-            category_indicator = 'E'
-        elif category == 'very_fast':
-            color = (126, 99, 255)       # Purple for very fast
-            category_indicator = 'VF'
-        elif category == 'fast':
-            color = (60, 76, 231)       # Red-orange for fast
-            category_indicator = 'F'
-        elif category == 'medium':
-            color = (226, 173, 93)      # Blue/Orange for medium
-            category_indicator = 'M'
-        elif category == 'slow':
-            color = (113, 204, 46)      # Green for slow
-            category_indicator = 'S'
-        else:
-            color = (128, 128, 128)     # Gray for unknown
-            category_indicator = '?'
-        
-        # Format text with enhanced category indicator
-        text = f"{keypoint_name.replace('_', ' ').title()}: {speed:.1f} ({category_indicator})"
-        cv2.putText(image, text, (x_offset, y_current), 
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.3, color, 1)
-        y_current += y_offset
+
 
 
 # NEW: Utility function to integrate jitter detection into your main processing loop
 def process_frame_with_jitter_detection(velocity_tracker, keypoints, timestamp, confidences, 
-                                       rep_counter=None, confidence_threshold=0.3):
+                                                 angles=None, confidence_threshold=0.3):
     """
-    Main processing function that integrates jitter detection with your existing pipeline
-    
-    This function should replace your current frame processing logic
+    Main processing function with complete jitter integration
     
     Args:
-        velocity_tracker: VelocityTracker instance with jitter detection
+        velocity_tracker: VelocityTracker instance with integrated jitter system
         keypoints: Current frame keypoints
-        timestamp: Current frame timestamp
+        timestamp: Current frame timestamp  
         confidences: Keypoint confidence scores
-        rep_counter: RepCounter instance (optional)
+        angles: Pre-calculated angles (optional)
         confidence_threshold: Minimum confidence for valid keypoints
         
     Returns:
-        dict: Processing results including jitter status and whether to proceed
+        dict: Complete processing results with jitter handling
     """
-    # Calculate velocities with integrated jitter detection
+    # Calculate velocities (includes jitter detection)
     velocities = velocity_tracker.calculate_velocities(
         keypoints, timestamp, confidences, confidence_threshold
     )
     
-    # Get comprehensive jitter status
-    jitter_status = velocity_tracker.get_jitter_status()
+    # Extract jitter status
+    jitter_status = velocities.get('_jitter_status', {})
+    functions_paused = velocities.get('_pause_functions', False)
     
-    # Determine if other functions should process this frame
-    should_process_motion = not velocity_tracker.is_current_period_erratic()
+    # Get angles if not provided
+    if angles is None:
+        angles = calculate_body_angles(keypoints, confidences, confidence_threshold)
     
-    # Process other components only if motion is stable
+    # Process fitness scorer (handles its own jitter checking)
+    fitness_scorer = velocity_tracker.fitness_scorer
+    
+    # Check ready position and start tracking
+    ready_status_info = fitness_scorer.check_ready_and_start_tracking(
+        angles, keypoints, confidences, 
+        fitness_scorer.frame_count + fitness_scorer.pre_ready_frames + 1, 
+        velocities
+    )
+    
+    # Evaluate fitness (will be paused automatically if jitter detected)
+    fitness_evaluation = None
+    if ready_status_info['tracking_started']:
+        body_scale = velocity_tracker.body_calculator.reference_scale
+        fitness_evaluation = fitness_scorer.evaluate_frame(
+            angles, velocities, keypoints=keypoints, 
+            body_scale=body_scale, confidences=confidences
+        )
+    
+    # Get RPE analysis (handles its own jitter checking)
+    rpe_analysis = velocity_tracker.get_integrated_rpe_analysis(fitness_scorer.rep_counter)
+    
+    # Compile comprehensive results
     processed_data = {
         'velocities': velocities,
+        'angles': angles,
         'jitter_status': jitter_status,
-        'should_process_motion': should_process_motion,
-        'body_measurements': None,
-        'rpe_analysis': None,
-        'rep_analysis': None
-    }
-    
-    if should_process_motion:
-        # Get body measurements
-        processed_data['body_measurements'] = {
+        'functions_paused': functions_paused,
+        'ready_status_info': ready_status_info,
+        'fitness_evaluation': fitness_evaluation,
+        'rpe_analysis': rpe_analysis,
+        'body_measurements': {
             'reference_scale': velocity_tracker.body_calculator.reference_scale
-        }
-        
-        # Process rep counting if available
-        if rep_counter is not None:
-            # Only process reps during stable periods
-            try:
-                # Your existing rep counting logic here
-                processed_data['rep_analysis'] = rep_counter.process_frame(keypoints, confidences)
-            except Exception as e:
-                print(f"Rep counting paused due to motion instability: {e}")
-        
-        # Get RPE analysis
-        if rep_counter is not None:
-            processed_data['rpe_analysis'] = velocity_tracker.get_integrated_rpe_analysis(rep_counter)
-    else:
-        # During erratic periods, provide status information
-        processed_data['processing_status'] = 'paused_due_to_jitter'
-        processed_data['recommendations'] = jitter_status['recommendations']
+        },
+        'jitter_system_stats': velocity_tracker.jitter_pause_system.get_statistics(),
+        'processing_status': 'paused_due_to_jitter' if functions_paused else 'active',
+        'recommendations': velocity_tracker._get_jitter_recommendations()
+    }
     
     return processed_data
 
@@ -3441,7 +3247,7 @@ def tune_jitter_detection_parameters(velocity_tracker, test_data_frames):
     for extreme_mult in extreme_multipliers:
         for keypoint_thresh in keypoint_thresholds:
             # Create test detector
-            test_detector = ErraticJitterDetector(
+            test_detector = SimpleJitterPauseSystem(
                 extreme_multiplier=extreme_mult,
                 keypoint_threshold=keypoint_thresh
             )
@@ -3787,6 +3593,7 @@ def select_best_person(keypoints_array, confidences_array, confidence_threshold=
     return keypoints_array[best_person_idx], confidences_array[best_person_idx], best_person_idx
 
 
+
 def draw_skeleton_on_image(image, keypoints, confidences, velocities=None, body_measurements=None, fitness_scorer=None, rpe_calculator=None, velocity_tracker=None, show_velocity_vectors=True, confidence_threshold=0.3):
     """
     Draw skeleton connections on image with steadiness detection support and RPE display
@@ -3796,7 +3603,12 @@ def draw_skeleton_on_image(image, keypoints, confidences, velocities=None, body_
     - Checks if tracking has started before calling fitness scorer evaluation
     - Displays ready position status prominently
     - Only shows performance metrics when tracking is active
+    - INFO BOXES NOW USE PERCENTAGE-BASED POSITIONING
+    - FIXED: Ready display disappears after ready signal is received
     """
+    
+    # Get image dimensions for percentage calculations
+    h, w = image.shape[:2]
     
     # Skeleton connections (your exact specifications)
     skeleton_connections = {
@@ -3829,8 +3641,6 @@ def draw_skeleton_on_image(image, keypoints, confidences, velocities=None, body_
         for start_idx, end_idx in connections:
             keypoint_colors[start_idx] = color
             keypoint_colors[end_idx] = color
-    
-    h, w = image.shape[:2]
     
     # Ensure keypoints are in the right format
     if keypoints.shape[0] == 1:
@@ -3894,44 +3704,46 @@ def draw_skeleton_on_image(image, keypoints, confidences, velocities=None, body_
                 confidences=confidences
             )
             
-            # Draw performance metrics (only when tracking)
-            image = draw_score_display_with_tracking_status(image, fitness_scorer)
-            image = draw_rep_counter_display(image, fitness_scorer, position=(900, 150))
-            image = draw_steadiness_info_box(image, fitness_scorer, position=(900, 600))
+            # Draw performance metrics (only when tracking) - PERCENTAGE-BASED POSITIONS
+            image = draw_score_display_with_tracking_status(image, fitness_scorer, position_percent=(75, 5))
+            image = draw_rep_counter_display(image, fitness_scorer, position_percent=(75, 20))
+            image = draw_steadiness_info_box(image, fitness_scorer, position_percent=(75, 70))
             
-            # Draw ready position status (will show "tracking active")
-            if evaluation and 'rep_info' in evaluation:
-                rep_info = evaluation['rep_info']
-                image = draw_waiting_for_ready_display(image, rep_info, position=(200, 600))
+            # FIXED: Only show ready position display if still in ready state (not after tracking starts)
+            ready_status = ready_status_info.get('ready_status') if ready_status_info else None
+            if ready_status and ready_status.get('status') == 'ready' and not ready_status.get('tracking_active'):
+                # Show brief "Ready! Starting..." message only during transition
+                image = draw_waiting_for_ready_display(image, ready_status_info, position_percent=(15, 60))
+            # Do NOT show the ready display once tracking is fully active
 
             # RPE Calculator integration (only when tracking)
             if velocity_tracker is not None:
                 rep_counter = fitness_scorer.rep_counter
                 try:
-                    image = draw_integrated_rpe_display(image, velocity_tracker, rep_counter, position=(900, 300))
+                    image = draw_integrated_rpe_display(image, velocity_tracker, rep_counter, position_percent=(75, 42))
                 except Exception as e:
-                    cv2.putText(image, f"RPE: Calculating... ({str(e)[:20]})", (900, 320), 
+                    cv2.putText(image, f"RPE: Calculating... ({str(e)[:20]})", (int(w*0.75), int(h*0.32)), 
                                cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 2)
             else:
-                cv2.putText(image, "RPE: Needs VelocityTracker", (900, 320), 
+                cv2.putText(image, "RPE: Needs VelocityTracker", (int(w*0.75), int(h*0.32)), 
                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 2)
 
             # Draw feedback messages (only when tracking)
             if evaluation['feedback']:
-                image = draw_feedback_messages(image, evaluation['feedback'], position=(900, 500))
+                image = draw_feedback_messages(image, evaluation['feedback'], position_percent=(75, 90))
             
             # Draw steadiness indicators for monitored joints (only when tracking)
             image = draw_steadiness_indicators(image, fitness_scorer, keypoints, confidences, body_scale, confidence_threshold)
             
         else:
             # TRACKING NOT STARTED - Display ready position guidance
-            image = draw_waiting_for_ready_display(image, ready_status_info, position=(200, 600))
+            image = draw_waiting_for_ready_display(image, ready_status_info, position_percent=(15, 60))
             
             # Show basic score display (grayed out)
-            image = draw_score_display_with_tracking_status(image, fitness_scorer)
+            image = draw_score_display_with_tracking_status(image, fitness_scorer, position_percent=(75, 5))
             
             # Show empty rep counter
-            image = draw_rep_counter_display(image, fitness_scorer, position=(900, 150))
+            image = draw_rep_counter_display(image, fitness_scorer, position_percent=(75, 15))
     
     # Draw angle measurements on the image
     if angles:
@@ -3969,8 +3781,455 @@ def draw_skeleton_on_image(image, keypoints, confidences, velocities=None, body_
 
     return image, angles
 
+def convert_percent_to_pixel(image_shape, position_percent):
+    """
+    Convert percentage-based position to pixel coordinates
+    
+    Args:
+        image_shape: (height, width) tuple from image.shape[:2]
+        position_percent: (x_percent, y_percent) tuple where values are 0-100
+    
+    Returns:
+        (x_pixel, y_pixel) tuple
+    """
+    h, w = image_shape
+    x_percent, y_percent = position_percent
+    
+    # Convert percentages to pixels
+    x_pixel = int((x_percent / 100) * w)
+    y_pixel = int((y_percent / 100) * h)
+    
+    return (x_pixel, y_pixel)
+
+def draw_waiting_for_ready_display(image, ready_status_info, position_percent=(15, 60), show_ready_confirmation=False):
+    """
+    NEW FUNCTION: Draw display when waiting for ready position
+    UPDATED: Uses percentage-based positioning and can hide after ready signal
+    
+    Args:
+        image: OpenCV image
+        ready_status_info: Dictionary from fitness_scorer.check_ready_and_start_tracking()
+        position_percent: (x_percent, y_percent) for display (0-100 range)
+        show_ready_confirmation: If True, shows ready confirmation; if False, skips when ready
+    """
+    h, w = image.shape[:2]
+    x, y = convert_percent_to_pixel((h, w), position_percent)
+    
+    # Handle None cases safely
+    if not ready_status_info:
+        return image
+        
+    ready_status = ready_status_info.get('ready_status')
+    if not ready_status:
+        return image
+    
+    status = ready_status.get('status', 'unknown')
+    
+    # FIXED: Don't show display if ready and tracking is active (unless explicitly requested)
+    if status == 'ready' and ready_status.get('tracking_active') and not show_ready_confirmation:
+        return image  # Hide the display completely
+    
+    # Calculate adaptive box size based on image dimensions
+    box_width = int(w * 0.35)  # 35% of screen width
+    box_height = int(h * 0.15)  # 15% of screen height
+    
+    # Create semi-transparent background
+    overlay = image.copy()
+    cv2.rectangle(overlay, (x-10, y-30), (x+box_width, y+box_height), (0, 0, 0), -1)
+    image = cv2.addWeighted(image, 0.7, overlay, 0.3, 0)
+    
+    # Status colors and messages based on ready position status
+    if status == 'ready' and ready_status.get('tracking_active'):
+        status_color = (0, 255, 0)  # Green
+        status_text = "🎯 TRACKING STARTED!"
+        instruction_text = "Exercise tracking is now active"
+    elif status == 'ready':
+        status_color = (0, 255, 0)  # Green
+        status_text = "🎯 READY - TRACKING STARTING!"
+        instruction_text = "Perfect! Beginning exercise tracking..."
+    elif status == 'stabilizing':
+        status_color = (0, 255, 255)  # Yellow
+        status_text = "⏳ GET READY - Hold Position"
+        instruction_text = "Hold steady in ready position..."
+    elif status == 'wrong_position':
+        status_color = (0, 165, 255)  # Orange
+        status_text = "📍 MOVE TO READY POSITION"
+        instruction_text = "Position arms extended down at sides"
+    elif status == 'unstable':
+        status_color = (60, 76, 231)  # Red
+        status_text = "⚡ TOO MUCH MOVEMENT"
+        instruction_text = "Hold steady - minimize movement"
+    elif status == 'low_confidence':
+        status_color = (128, 128, 128)  # Gray
+        status_text = "📹 IMPROVE CAMERA VIEW"
+        instruction_text = "Ensure you're fully visible and well-lit"
+    else:
+        status_color = (128, 128, 128)  # Gray
+        status_text = f"Status: {status.upper()}"
+        instruction_text = ready_status.get('message', 'Preparing...')
+    
+    # Adaptive font sizes based on image dimensions
+    status_font_size = min(0.8, w / 800)
+    instruction_font_size = min(0.5, w / 1200)
+    detail_font_size = min(0.4, w / 1600)
+    
+    # Draw main status
+    cv2.putText(image, status_text, (x, y), 
+                cv2.FONT_HERSHEY_SIMPLEX, status_font_size, status_color, 2)
+    
+    # Draw instruction
+    cv2.putText(image, instruction_text, (x, y + int(h * 0.03)), 
+                cv2.FONT_HERSHEY_SIMPLEX, instruction_font_size, (255, 255, 255), 1)
+    
+    # Draw detailed message from ready detector (only for non-ready states)
+    if status != 'ready' or not ready_status.get('tracking_active'):
+        detail_message = ready_status.get('message', '')
+        if detail_message and len(detail_message) < 60:  # Only show if not too long
+            cv2.putText(image, detail_message, (x, y + int(h * 0.055)), 
+                        cv2.FONT_HERSHEY_SIMPLEX, detail_font_size, (200, 200, 200), 1)
+    
+    # Draw progress bar for stabilizing
+    if status == 'stabilizing':
+        progress = ready_status.get('stability_progress', 0)
+        bar_width = int(box_width * 0.6)
+        bar_height = int(h * 0.01)
+        bar_x = x
+        bar_y = y + int(h * 0.08)
+        
+        # Background bar
+        cv2.rectangle(image, (bar_x, bar_y), (bar_x + bar_width, bar_y + bar_height), (64, 64, 64), -1)
+        
+        # Progress bar
+        progress_width = int((progress / 100) * bar_width)
+        cv2.rectangle(image, (bar_x, bar_y), (bar_x + progress_width, bar_y + bar_height), status_color, -1)
+        
+        # Progress text
+        cv2.putText(image, f"{progress:.0f}% Ready", (bar_x + bar_width + 15, bar_y + 8), 
+                    cv2.FONT_HERSHEY_SIMPLEX, detail_font_size, status_color, 1)
+    
+    # Show preparation frame count (only for non-ready states)
+    if status != 'ready' or not ready_status.get('tracking_active'):
+        prep_frames = ready_status_info.get('preparation_frames', 0)
+        cv2.putText(image, f"Preparation frames: {prep_frames}", (x, y + int(h * 0.105)), 
+                    cv2.FONT_HERSHEY_SIMPLEX, detail_font_size, (150, 150, 150), 1)
+    
+    return image
 
 
+def draw_score_display_with_tracking_status(image, fitness_scorer, position_percent=(75, 5)):
+    """Enhanced score display that shows jitter pause status - PERCENTAGE POSITIONING"""
+    h, w = image.shape[:2]
+    x, y = convert_percent_to_pixel((h, w), position_percent)
+    
+    score_info = fitness_scorer.get_score_display()
+    tracking_started = score_info.get('tracking_started', False)
+    jitter_paused = score_info.get('jitter_paused', False)
+    
+    # Calculate adaptive box size
+    box_width = int(w * 0.2)   # 20% of screen width
+    box_height = int(h * 0.12) # 12% of screen height
+    
+    # Create semi-transparent background
+    overlay = image.copy()
+    cv2.rectangle(overlay, (x-5, y-25), (x+box_width, y+box_height), (0, 0, 0), -1)
+    image = cv2.addWeighted(image, 0.7, overlay, 0.3, 0)
+    
+    # Adaptive font sizes
+    score_font_size = min(0.7, w / 900)
+    status_font_size = min(0.4, w / 1500)
+    
+    # Draw score text with jitter and tracking status
+    cv2.putText(image, score_info['display_text'], (x, y), 
+                cv2.FONT_HERSHEY_SIMPLEX, score_font_size, score_info['color'], 2)
+    
+    # Determine status text and color
+    if jitter_paused:
+        status_text = "⚠️ PAUSED - JITTER DETECTED"
+        status_color = (255, 0, 255)  # Magenta
+    elif tracking_started:
+        status_text = "🎯 TRACKING ACTIVE"
+        status_color = (0, 255, 0)  # Green
+    else:
+        status_text = "⏳ WAITING FOR READY"
+        status_color = (255, 255, 0)  # Yellow
+    
+    # Draw status
+    cv2.putText(image, status_text, (x, y - 15), 
+                cv2.FONT_HERSHEY_SIMPLEX, status_font_size, status_color, 1)
+    
+    # Draw progress bar (only when tracking and not paused)
+    if tracking_started and not jitter_paused:
+        bar_width = int(box_width * 0.8)
+        bar_height = int(h * 0.01)
+        bar_x = x
+        bar_y = y + 15
+        
+        # Background bar
+        cv2.rectangle(image, (bar_x, bar_y), (bar_x + bar_width, bar_y + bar_height), (64, 64, 64), -1)
+        
+        # Progress bar
+        progress_width = int((score_info['percentage'] / 100) * bar_width)
+        cv2.rectangle(image, (bar_x, bar_y), (bar_x + progress_width, bar_y + bar_height), score_info['color'], -1)
+        
+        # Progress text
+        cv2.putText(image, f"{score_info['percentage']:.1f}%", (bar_x + bar_width + 10, bar_y + 8), 
+                    cv2.FONT_HERSHEY_SIMPLEX, status_font_size, (255, 255, 255), 1)
+    else:
+        # Show appropriate waiting/pause message
+        if jitter_paused:
+            message = "Scoring paused due to erratic motion detection"
+        elif not tracking_started:
+            message = "Score tracking will begin when ready position is detected"
+        
+        # Wrap text if too long for screen width
+        max_chars = int(box_width / (w / 100))  # Approximate character limit
+        if len(message) > max_chars:
+            words = message.split()
+            lines = []
+            current_line = ""
+            for word in words:
+                if len(current_line + word) < max_chars:
+                    current_line += word + " "
+                else:
+                    lines.append(current_line.strip())
+                    current_line = word + " "
+            if current_line:
+                lines.append(current_line.strip())
+            
+            for i, line in enumerate(lines):
+                cv2.putText(image, line, (x, y + 25 + (i * int(h * 0.02))), 
+                           cv2.FONT_HERSHEY_SIMPLEX, min(0.35, w / 1800), (200, 200, 200), 1)
+        else:
+            cv2.putText(image, message, (x, y + 25), 
+                       cv2.FONT_HERSHEY_SIMPLEX, min(0.35, w / 1800), (200, 200, 200), 1)
+    
+    return image
+
+def draw_rep_counter_display(image, fitness_scorer, position_percent=(75, 15)):
+    """
+    Draw adaptive rep counter information with jitter detection and tracking status
+    UPDATED: Uses percentage-based positioning
+    
+    Args:
+        image: OpenCV image
+        fitness_scorer: FitnessScorer instance with rep_counter
+        position_percent: (x_percent, y_percent) for display (0-100 range)
+    """
+    h, w = image.shape[:2]
+    x, y = convert_percent_to_pixel((h, w), position_percent)
+    
+    rep_info = fitness_scorer.get_rep_info()
+    
+    # Get additional status information
+    tracking_enabled = rep_info.get('tracking_enabled', False)
+    jitter_paused = rep_info.get('jitter_paused', False)
+    ready_detector = "Active" if rep_info.get('ready_detector') != "None" else "None"
+    
+    # Calculate adaptive dimensions
+    box_width = int(w * 0.25)  # 25% of screen width
+    box_height = int(h * 0.18) # 18% of screen height
+    
+    # Determine display state and colors
+    if jitter_paused:
+        # JITTER PAUSE STATE
+        title_text = "REP COUNTER - PAUSED"
+        title_color = (255, 0, 255)  # Magenta
+        bg_color = (50, 0, 50)       # Dark magenta background
+        status_text = "⚠️ MOTION JITTER DETECTED"
+        status_color = (255, 100, 255)
+    elif not tracking_enabled:
+        # WAITING FOR READY STATE
+        title_text = "REP COUNTER - STANDBY"
+        title_color = (255, 255, 0)  # Yellow
+        bg_color = (50, 50, 0)       # Dark yellow background
+        status_text = "⏳ WAITING FOR READY POSITION"
+        status_color = (255, 255, 100)
+    else:
+        # ACTIVE TRACKING STATE
+        title_text = "REP COUNTER - ACTIVE"
+        title_color = (0, 255, 0)    # Green
+        bg_color = (0, 50, 0)        # Dark green background
+        status_text = "🎯 TRACKING REPS"
+        status_color = (100, 255, 100)
+    
+    # Create adaptive semi-transparent background
+    overlay = image.copy()
+    cv2.rectangle(overlay, (x-5, y-25), (x+box_width, y+box_height), bg_color, -1)
+    image = cv2.addWeighted(image, 0.8, overlay, 0.2, 0)
+    
+    # Draw border with state color
+    cv2.rectangle(image, (x-5, y-25), (x+box_width, y+box_height), title_color, 2)
+    
+    # Adaptive font sizes
+    title_font_size = min(0.5, w / 1200)
+    status_font_size = min(0.35, w / 1500)
+    rep_font_size = min(0.7, w / 900)
+    detail_font_size = min(0.45, w / 1300)
+    info_font_size = min(0.3, w / 2000)
+    
+    # Title with state indication
+    cv2.putText(image, title_text, (x, y),
+                cv2.FONT_HERSHEY_SIMPLEX, title_font_size, title_color, 2)
+    
+    # Status line
+    cv2.putText(image, status_text, (x, y + int(h * 0.02)),
+                cv2.FONT_HERSHEY_SIMPLEX, status_font_size, status_color, 1)
+    
+    # Rep count (with adaptive styling)
+    if jitter_paused:
+        rep_text = f"Reps: {rep_info['total_reps']} (PAUSED)"
+        rep_color = (200, 100, 200)  # Dimmed color during pause
+    elif not tracking_enabled:
+        rep_text = f"Reps: {rep_info['total_reps']} (READY?)"
+        rep_color = (200, 200, 100)  # Dimmed color when waiting
+    else:
+        rep_text = f"Reps: {rep_info['total_reps']}"
+        rep_color = (0, 255, 0)      # Bright green when active
+    
+    cv2.putText(image, rep_text, (x, y + int(h * 0.05)),
+                cv2.FONT_HERSHEY_SIMPLEX, rep_font_size, rep_color, 2)
+    
+    # Half reps (only show when tracking is active)
+    if tracking_enabled and not jitter_paused:
+        half_rep_text = f"Half Reps: {rep_info['half_reps']}"
+        cv2.putText(image, half_rep_text, (x, y + int(h * 0.075)),
+                    cv2.FONT_HERSHEY_SIMPLEX, detail_font_size, (0, 255, 255), 1)
+    elif jitter_paused:
+        half_rep_text = f"Half Reps: {rep_info['half_reps']} (PAUSED)"
+        cv2.putText(image, half_rep_text, (x, y + int(h * 0.075)),
+                    cv2.FONT_HERSHEY_SIMPLEX, detail_font_size, (150, 150, 150), 1)
+    else:
+        # Show waiting message instead of half reps
+        waiting_text = "Waiting for exercise to begin..."
+        cv2.putText(image, waiting_text, (x, y + int(h * 0.075)),
+                    cv2.FONT_HERSHEY_SIMPLEX, detail_font_size, (200, 200, 0), 1)
+    
+    # Current phase with adaptive color coding
+    phase = rep_info['current_phase']
+    if jitter_paused:
+        # Dimmed colors during jitter pause
+        phase_colors = {
+            'neutral': (150, 150, 150),    # Dimmed white
+            'eccentric': (100, 82, 127),   # Dimmed orange
+            'concentric': (127, 50, 127)   # Dimmed magenta
+        }
+        phase_text = f"Phase: {phase.title()} (PAUSED)"
+    elif not tracking_enabled:
+        # Waiting colors
+        phase_colors = {
+            'neutral': (200, 200, 100),    # Yellow tint
+            'eccentric': (200, 165, 100),  # Yellow-orange
+            'concentric': (200, 100, 200)  # Yellow-magenta
+        }
+        phase_text = f"Phase: {phase.title()} (STANDBY)"
+    else:
+        # Normal active colors
+        phase_colors = {
+            'neutral': (255, 255, 255),    # White
+            'eccentric': (0, 165, 255),    # Orange
+            'concentric': (255, 0, 255)    # Magenta
+        }
+        phase_text = f"Phase: {phase.title()}"
+    
+    phase_color = phase_colors.get(phase, (128, 128, 128))
+    cv2.putText(image, phase_text, (x, y + int(h * 0.1)),
+                cv2.FONT_HERSHEY_SIMPLEX, detail_font_size, phase_color, 1)
+    
+    # Additional status line based on current state
+    if jitter_paused:
+        additional_info = "Functions will resume when motion stabilizes"
+        info_color = (255, 150, 255)
+    elif not tracking_enabled and ready_detector == "Active":
+        additional_info = "Assume ready position to begin tracking"
+        info_color = (255, 255, 150)
+    elif not tracking_enabled:
+        additional_info = "No ready position detector - tracking disabled"
+        info_color = (255, 200, 100)
+    else:
+        # Show current angle being tracked
+        tracking_angle = rep_info.get('tracking_angle', 'Unknown')
+        additional_info = f"Tracking: {tracking_angle.replace('_', ' ').title()}"
+        info_color = (100, 255, 150)
+    
+    cv2.putText(image, additional_info, (x, y + int(h * 0.125)),
+                cv2.FONT_HERSHEY_SIMPLEX, info_font_size, info_color, 1)
+    
+    return image
+
+def draw_steadiness_info_box(image, fitness_scorer, position_percent=(75, 60)):
+    """
+    Draw information box showing steadiness monitoring status
+    UPDATED: Uses percentage-based positioning
+    
+    Args:
+        image: OpenCV image
+        fitness_scorer: FitnessScorer instance
+        position_percent: (x_percent, y_percent) for info box (0-100 range)
+    
+    Returns:
+        image: Image with steadiness info box
+    """
+    h, w = image.shape[:2]
+    x_offset, y_start = convert_percent_to_pixel((h, w), position_percent)
+    
+    # Get steadiness debug info
+    debug_info = fitness_scorer.get_steadiness_debug_info()
+    
+    if not debug_info:
+        return image
+    
+    # Calculate adaptive dimensions
+    box_width = int(w * 0.23)  # 23% of screen width
+    y_offset = int(h * 0.015)  # 1.5% of screen height per line
+    box_height = len(debug_info) * (y_offset * 2) + int(h * 0.04)  # Total height
+    
+    # Create semi-transparent background
+    overlay = image.copy()
+    cv2.rectangle(overlay, (x_offset-5, y_start-20), (x_offset+box_width, y_start + box_height), (0, 0, 0), -1)
+    image = cv2.addWeighted(image, 0.7, overlay, 0.3, 0)
+    
+    y_current = y_start
+    
+    # Adaptive font sizes
+    title_font_size = min(0.5, w / 1200)
+    status_font_size = min(0.35, w / 1500)
+    rule_font_size = min(0.25, w / 2000)
+    
+    # Title
+    cv2.putText(image, "Steadiness Monitor:", (x_offset, y_current), 
+                cv2.FONT_HERSHEY_SIMPLEX, title_font_size, (255, 255, 255), 1)
+    y_current += y_offset + 5
+    
+    # Joint information
+    for joint_name, info in debug_info.items():
+        joint_display = joint_name.replace('_', ' ').title()
+        
+        # Status color based on violations
+        if info['violation_count'] > 0:
+            status_color = (0, 0, 255)  # Red
+            status = f"VIOLATING ({info['violation_count']})"
+        elif info['center_position'] is not None:
+            status_color = (0, 255, 0)  # Green
+            status = "MONITORING"
+        else:
+            status_color = (255, 255, 0)  # Yellow
+            status = "CALIBRATING"
+        
+        # Joint status line
+        status_text = f"{joint_display}: {status}"
+        cv2.putText(image, status_text, (x_offset, y_current), 
+                    cv2.FONT_HERSHEY_SIMPLEX, status_font_size, status_color, 1)
+        y_current += y_offset
+        
+        # Rule details (smaller text)
+        rule = info['rule']
+        radius_type = "adaptive" if rule['adaptive_radius'] else "fixed"
+        rule_text = f"  R:{rule['radius']} ({radius_type}) P:{rule['deduction']}"
+        cv2.putText(image, rule_text, (x_offset + 10, y_current), 
+                    cv2.FONT_HERSHEY_SIMPLEX, rule_font_size, (200, 200, 200), 1)
+        y_current += y_offset - 3
+    
+    return image
 
 def draw_steadiness_indicators(image, fitness_scorer, keypoints, confidences, body_scale=None, confidence_threshold=0.3):
     """
@@ -4072,116 +4331,301 @@ def draw_steadiness_indicators(image, fitness_scorer, keypoints, confidences, bo
     
     return image
 
-
-def draw_steadiness_info_box(image, fitness_scorer, position=(450, 10)):
-    """
-    Draw information box showing steadiness monitoring status
+def draw_integrated_rpe_display(image, velocity_tracker, rep_counter, position_percent=(75, 30)):
+    """Modified RPE display - PERCENTAGE POSITIONING with proper box sizing"""
+    h, w = image.shape[:2]
+    x, y = convert_percent_to_pixel((h, w), position_percent)
     
-    Args:
-        image: OpenCV image
-        fitness_scorer: FitnessScorer instance
-        position: (x, y) position for info box
+    # Calculate adaptive dimensions - INCREASED HEIGHT to accommodate all text
+    box_width = int(w * 0.4)   # 40% of screen width
+    box_height = int(h * 0.275)  # INCREASED from 25% to 35% of screen height
     
-    Returns:
-        image: Image with steadiness info box
-    """
-    x_offset, y_start = position
-    y_offset = 15
-    y_current = y_start
-    
-    # Get steadiness debug info
-    debug_info = fitness_scorer.get_steadiness_debug_info()
-    
-    if not debug_info:
-        return image
-    
-    # Create semi-transparent background
-    box_height = len(debug_info) * y_offset + 40
+    # Create background
     overlay = image.copy()
-    cv2.rectangle(overlay, (x_offset-5, y_start-20), (x_offset+300, y_start + box_height), (0, 0, 0), -1)
+    cv2.rectangle(overlay, (x-5, y-25), (x+box_width, y+box_height), (0, 0, 0), -1)
     image = cv2.addWeighted(image, 0.7, overlay, 0.3, 0)
     
-    # Title
-    cv2.putText(image, "Steadiness Monitor:", (x_offset, y_current), 
-                cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
-    y_current += y_offset + 5
+    # Adaptive font sizes - REDUCED slightly to fit better
+    title_font_size = min(0.6, w / 1000)      # Reduced from 0.7
+    rpe_font_size = min(0.9, w / 800)         # Reduced from 1.0
+    detail_font_size = min(0.45, w / 1300)    # Reduced from 0.5
+    component_font_size = min(0.32, w / 1600) # Reduced from 0.35
+    interpretation_font_size = min(0.4, w / 1400) # Reduced from 0.45
     
-    # Joint information
-    for joint_name, info in debug_info.items():
-        joint_display = joint_name.replace('_', ' ').title()
+    # Title
+    cv2.putText(image, "INTEGRATED RPE ANALYSIS", (x, y), 
+                cv2.FONT_HERSHEY_SIMPLEX, title_font_size, (255, 255, 255), 2)
+    
+    # Get RPE result
+    try:
+        rpe_result = velocity_tracker.get_integrated_rpe_analysis(rep_counter)
+    except Exception as e:
+        # Fallback error display
+        cv2.putText(image, f"RPE: Error ({str(e)[:30]}...)", (x, y + int(h * 0.03)), 
+                    cv2.FONT_HERSHEY_SIMPLEX, rpe_font_size, (0, 0, 255), 2)
+        cv2.putText(image, "Check system integration", (x, y + int(h * 0.06)), 
+                    cv2.FONT_HERSHEY_SIMPLEX, detail_font_size, (200, 200, 200), 1)
+        return image
+    
+    # Check status
+    confidence = rpe_result.get('confidence', 'unknown')
+    if confidence == 'waiting':
+        # Show waiting status
+        cv2.putText(image, "RPE: Waiting for Ready Position", (x, y + int(h * 0.03)), 
+                    cv2.FONT_HERSHEY_SIMPLEX, rpe_font_size, (255, 255, 0), 2)
+        cv2.putText(image, rpe_result.get('interpretation', 'Waiting...'), (x, y + int(h * 0.06)), 
+                   cv2.FONT_HERSHEY_SIMPLEX, interpretation_font_size, (255, 255, 255), 1)
         
-        # Status color based on violations
-        if info['violation_count'] > 0:
-            status_color = (0, 0, 255)  # Red
-            status = f"VIOLATING ({info['violation_count']})"
-        elif info['center_position'] is not None:
-            status_color = (0, 255, 0)  # Green
-            status = "MONITORING"
+    else:
+        # Normal RPE display - ADJUSTED Y POSITIONS
+        rpe_score = rpe_result.get('rpe', 5.0)
+        if rpe_score <= 4:
+            rpe_color = (0, 255, 0)  # Green
+        elif rpe_score <= 6:
+            rpe_color = (0, 255, 255)  # Yellow
+        elif rpe_score <= 8:
+            rpe_color = (0, 165, 255)  # Orange
         else:
-            status_color = (255, 255, 0)  # Yellow
-            status = "CALIBRATING"
+            rpe_color = (0, 0, 255)  # Red
         
-        # Joint status line
-        status_text = f"{joint_display}: {status}"
-        cv2.putText(image, status_text, (x_offset, y_current), 
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.35, status_color, 1)
-        y_current += y_offset
+        cv2.putText(image, f"RPE: {rpe_score}/10", (x, y + int(h * 0.03)), 
+                    cv2.FONT_HERSHEY_SIMPLEX, rpe_font_size, rpe_color, 2)
         
-        # Rule details (smaller text)
-        rule = info['rule']
-        radius_type = "adaptive" if rule['adaptive_radius'] else "fixed"
-        rule_text = f"  R:{rule['radius']} ({radius_type}) P:{rule['deduction']}"
-        cv2.putText(image, rule_text, (x_offset + 10, y_current), 
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.25, (200, 200, 200), 1)
-        y_current += y_offset - 3
+        # Confidence and data sources
+        confidence_colors = {'high': (0, 255, 0), 'medium': (0, 255, 255), 
+                           'low': (0, 0, 255), 'error': (128, 128, 128)}
+        confidence_color = confidence_colors.get(confidence, (128, 128, 128))
+        
+        cv2.putText(image, f"Confidence: {confidence.title()}", (x, y + int(h * 0.055)), 
+                    cv2.FONT_HERSHEY_SIMPLEX, detail_font_size, confidence_color, 1)
+        
+        # Data sources
+        data_sources = rpe_result.get('data_sources', {})
+        cv2.putText(image, f"Reps: {data_sources.get('reps', 0)} | Form: {data_sources.get('form_score', 0):.0f}%", 
+                    (x, y + int(h * 0.075)), cv2.FONT_HERSHEY_SIMPLEX, interpretation_font_size, (200, 200, 200), 1)
+        
+        # Show that RPE continues during jitter (if jitter system is active)
+        jitter_status = data_sources.get('jitter_status', 'unknown')
+        if jitter_status == 'rpe_continues_during_jitter':
+            cv2.putText(image, "RPE: Active (continues during jitter)", 
+                       (x, y + int(h * 0.095)), cv2.FONT_HERSHEY_SIMPLEX, component_font_size, (0, 255, 255), 1)
+        
+        # RPE Breakdown
+        breakdown = rpe_result.get('breakdown', {})
+        y_breakdown = y + int(h * 0.115)  # Adjusted position
+        cv2.putText(image, "Component Analysis:", (x, y_breakdown), 
+                    cv2.FONT_HERSHEY_SIMPLEX, interpretation_font_size, (255, 255, 100), 1)
+        
+        # IMPROVED: Dynamic line spacing and limit number of components shown
+        line_spacing = int(h * 0.018)  # Slightly increased line spacing
+        max_components = 6  # Limit to prevent overflow
+        
+        component_count = 0
+        for i, (component, score) in enumerate(breakdown.items()):
+            if score is not None and component_count < max_components:
+                component_name = component.replace('_', ' ').title()
+                # Truncate long component names
+                if len(component_name) > 15:
+                    component_name = component_name[:12] + "..."
+                    
+                score_color = (0, 255, 0) if score <= 5 else (0, 165, 255) if score <= 7 else (0, 0, 255)
+                cv2.putText(image, f"{component_name}: {score:.1f}", 
+                           (x + 10, y_breakdown + 20 + (component_count * line_spacing)), 
+                           cv2.FONT_HERSHEY_SIMPLEX, component_font_size, score_color, 1)
+                component_count += 1
+        
+        # Interpretation - ADJUSTED POSITION to fit within box
+        interpretation_y = y + int(h * 0.25)  # Moved up from 0.24
+        interpretation = rpe_result.get('interpretation', 'Moderate effort')
+        # Truncate long interpretations
+        if len(interpretation) > 40:
+            interpretation = interpretation[:37] + "..."
+            
+        cv2.putText(image, interpretation, (x, interpretation_y), 
+                    cv2.FONT_HERSHEY_SIMPLEX, interpretation_font_size, (255, 255, 255), 1)
+        
+        # Fatigue indicators - ADJUSTED POSITION and made conditional
+        fatigue_y = y + int(h * 0.28)  # Moved up from 0.265
+        
+        # Only show fatigue if there's enough space (check if we're still within box bounds)
+        if fatigue_y < (y + box_height - 20):  # Leave 20px margin from box bottom
+            fatigue_indicators = rpe_result.get('fatigue_indicators', [])
+            if fatigue_indicators:
+                fatigue_text = f"Fatigue: {', '.join(fatigue_indicators[:2])}"
+                # Truncate if too long
+                if len(fatigue_text) > 35:
+                    fatigue_text = fatigue_text[:32] + "..."
+                cv2.putText(image, fatigue_text, (x, fatigue_y), 
+                            cv2.FONT_HERSHEY_SIMPLEX, component_font_size, (255, 100, 100), 1)
     
     return image
 
-def draw_rep_counter_display(image, fitness_scorer, position=(900, 200)):
+def draw_feedback_messages(image, feedback_messages, position_percent=(75, 50)):
     """
-    Draw rep counter information on the image
+    Draw feedback messages on the image
+    UPDATED: Uses percentage-based positioning
     
     Args:
-        image: OpenCV image
-        fitness_scorer: FitnessScorer instance with rep_counter
-        position: (x, y) position for display
+        image: OpenCV image  
+        feedback_messages: List of feedback strings
+        position_percent: (x_percent, y_percent) starting position (0-100 range)
     """
-    rep_info = fitness_scorer.get_rep_info()
-    x, y = position
+    if not feedback_messages:
+        return image
     
-    # Create semi-transparent background
+    h, w = image.shape[:2]
+    x, y_start = convert_percent_to_pixel((h, w), position_percent)
+    
+    # Calculate adaptive dimensions
+    line_height = int(h * 0.025)  # 2.5% of screen height per line
+    box_width = int(w * 0.35)     # 35% of screen width
+    
+    # Create background
+    bg_height = len(feedback_messages) * line_height + 10
     overlay = image.copy()
-    cv2.rectangle(overlay, (x-5, y-25), (x+300, y+120), (0, 0, 0), -1)
-    image = cv2.addWeighted(image, 0.8, overlay, 0.2, 0)
+    cv2.rectangle(overlay, (x-5, y_start-20), (x+box_width, y_start + bg_height), (0, 0, 0), -1)
+    image = cv2.addWeighted(image, 0.7, overlay, 0.3, 0)
     
-    # Title
-    cv2.putText(image, "REP COUNTER", (x, y), 
-                cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
+    # Adaptive font size
+    font_size = min(0.5, w / 1200)
     
-    # Rep count (large text)
-    rep_text = f"Reps: {rep_info['total_reps']}"
-    cv2.putText(image, rep_text, (x, y + 35), 
-                cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
-    
-    # Half reps
-    half_rep_text = f"Half Reps: {rep_info['half_reps']}"
-    cv2.putText(image, half_rep_text, (x, y + 65), 
-                cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 1)
-    
-    # Current phase with color coding
-    phase = rep_info['current_phase']
-    phase_colors = {
-        'neutral': (255, 255, 255),      # White
-        'eccentric': (0, 165, 255),      # Orange
-        'concentric': (255, 0, 255)      # Magenta
-    }
-    phase_color = phase_colors.get(phase, (128, 128, 128))
-    
-    phase_text = f"Phase: {phase.title()}"
-    cv2.putText(image, phase_text, (x, y + 95), 
-                cv2.FONT_HERSHEY_SIMPLEX, 0.5, phase_color, 1)
+    # Draw messages
+    for i, message in enumerate(feedback_messages):
+        y = y_start + (i * line_height)
+        
+        # Color based on message type
+        if "CRITICAL" in message:
+            color = (0, 0, 255)  # Red
+        elif "Form" in message:
+            color = (0, 165, 255)  # Orange
+        elif "Speed" in message:
+            color = (0, 255, 255)  # Yellow
+        else:
+            color = (255, 255, 255)  # White
+        
+        cv2.putText(image, message, (x, y), 
+                    cv2.FONT_HERSHEY_SIMPLEX, font_size, color, 1)
     
     return image
+
+def velocity_info_box(image, velocities, body_measurements=None, jitter_status=None, position_offset_percent=(18, 1)):
+    """
+    Display velocity information with jitter detection status
+    UPDATED: Uses percentage-based positioning
+    """
+    h, w = image.shape[:2]
+    x_offset, y_start = convert_percent_to_pixel((h, w), position_offset_percent)
+    
+    # Adaptive spacing and font sizes
+    y_offset = int(h * 0.012)  # 1.2% of screen height per line
+    title_font_size = min(0.4, w / 1500)
+    main_font_size = min(0.35, w / 1600)
+    detail_font_size = min(0.3, w / 1800)
+    small_font_size = min(0.25, w / 2000)
+    
+    y_current = y_start
+    
+    # Filter out special keys for display
+    display_velocities = {k: v for k, v in velocities.items() if not k.startswith('_')}
+    
+    # Get jitter status from velocities if not provided separately
+    if jitter_status is None and '_jitter_status' in velocities:
+        jitter_status = velocities['_jitter_status']
+    
+    # Sort by speed for better visualization
+    sorted_velocities = sorted(display_velocities.items(), 
+                              key=lambda x: x[1]['speed'], reverse=True)
+    
+    # Display title with reference scale info
+    cv2.putText(image, "Adaptive Velocities:", (x_offset, y_current), 
+                cv2.FONT_HERSHEY_SIMPLEX, title_font_size, (255, 255, 255), 1)
+    y_current += y_offset + 5
+    
+    # Display jitter detection status
+    if jitter_status:
+        if jitter_status.get('should_pause_functions', False):
+            status_text = "STATUS: FUNCTIONS PAUSED"
+            status_color = (0, 0, 255)  # Red
+            stable_frames = jitter_status.get('stable_frames_needed', 0)
+            if stable_frames > 0:
+                status_text += f" ({stable_frames} stable frames needed)"
+        else:
+            status_text = "STATUS: All Systems Active"
+            status_color = (0, 255, 0)  # Green
+            
+        cv2.putText(image, status_text, (x_offset, y_current), 
+                    cv2.FONT_HERSHEY_SIMPLEX, main_font_size, status_color, 1)
+        y_current += y_offset + 3
+        
+        # Show extreme threshold
+        if 'extreme_threshold' in jitter_status:
+            threshold_text = f"Extreme threshold: >{jitter_status['extreme_threshold']:.0f} px/s"
+            cv2.putText(image, threshold_text, (x_offset, y_current), 
+                        cv2.FONT_HERSHEY_SIMPLEX, detail_font_size, (255, 100, 100), 1)
+            y_current += y_offset
+    
+    # Display body scale info
+    if body_measurements and body_measurements.get('reference_scale') is not None:
+        scale_value = body_measurements['reference_scale']
+        scale_text = f"Body Scale: {scale_value:.1f}px"
+        scale_color = (0, 255, 0)  # Green when available
+    else:
+        scale_text = "Body Scale: Calculating..."
+        scale_color = (0, 255, 255)  # Yellow when calculating
+    
+    cv2.putText(image, scale_text, (x_offset, y_current), 
+                cv2.FONT_HERSHEY_SIMPLEX, detail_font_size, scale_color, 1)
+    y_current += y_offset
+    
+    # Display thresholds
+    if display_velocities:
+        first_velocity = next(iter(display_velocities.values()))
+        if 'thresholds' in first_velocity:
+            thresholds = first_velocity['thresholds']
+            threshold_text = f"Thresh: S<{thresholds['slow']:.0f} M<{thresholds['medium']:.0f} F<{thresholds['fast']:.0f}"
+            
+            cv2.putText(image, threshold_text, (x_offset, y_current), 
+                        cv2.FONT_HERSHEY_SIMPLEX, small_font_size, (92, 92, 205), 1)
+            y_current += y_offset + 3
+    
+    # Show keypoint velocities during normal operation
+    if jitter_status and jitter_status.get('should_pause_functions', False):
+        # During pause, show extreme keypoints
+        extreme_keypoints = jitter_status.get('extreme_keypoints', [])
+        cv2.putText(image, f"Extreme motion detected:", (x_offset, y_current), 
+                    cv2.FONT_HERSHEY_SIMPLEX, detail_font_size, (0, 0, 255), 1)
+        y_current += y_offset
+        
+        for i, kp in enumerate(extreme_keypoints[:5]):  # Show first 5
+            kp_text = f"  {kp['name']}: {kp['speed']:.0f} px/s"
+            cv2.putText(image, kp_text, (x_offset, y_current), 
+                        cv2.FONT_HERSHEY_SIMPLEX, small_font_size, (0, 0, 0), 1)
+            y_current += y_offset
+    else:
+        # Normal operation - show velocity data
+        for i, (keypoint_name, velocity) in enumerate(sorted_velocities[:8]):  # Show top 8
+            speed = velocity['speed']
+            category = velocity.get('speed_category', 'unknown')
+            
+            # Color coding
+            if category == 'fast' or category == 'very_fast':
+                color = (60, 76, 231)       # Red-orange for fast
+                category_indicator = 'F'
+            elif category == 'medium':
+                color = (226, 173, 93)      # Blue/Orange for medium
+                category_indicator = 'M'
+            elif category == 'slow':
+                color = (113, 204, 46)      # Green for slow
+                category_indicator = 'S'
+            else:
+                color = (128, 128, 128)     # Gray for unknown
+                category_indicator = '?'
+            
+            # Format text
+            text = f"{keypoint_name.replace('_', ' ').title()}: {speed:.1f} ({category_indicator})"
+            cv2.putText(image, text, (x_offset, y_current), 
+                        cv2.FONT_HERSHEY_SIMPLEX, detail_font_size, color, 1)
+            y_current += y_offset
 
 
 
@@ -4237,91 +4681,9 @@ def test_on_image():
     else:
         print(f"Test image not found: {TEST_IMAGE}")
 
-def countdown_with_preview(cap, countdown_seconds=5, show_preview=True):
-    """
-    Display a countdown with camera preview before starting form recording
-    
-    Args:
-        cap: OpenCV VideoCapture object
-        countdown_seconds: Number of seconds to countdown (default: 5)
-        show_preview: Whether to show camera preview during countdown
-    
-    Returns:
-        bool: True if countdown completed, False if user pressed 'q' to quit
-    """
-    print(f"Starting {countdown_seconds} second countdown...")
-    print("Position yourself in front of the camera")
-    print("Press 'q' to quit, or wait for countdown to complete")
-    
-    start_time = time.time()
-    
-    while True:
-        ret, frame = cap.read()
-        if not ret:
-            print("Error: Could not read from camera")
-            return False
-        
-        # Calculate remaining time
-        elapsed = time.time() - start_time
-        remaining = max(0, countdown_seconds - elapsed)
-        
-        if remaining <= 0:
-            # Countdown finished
-            if show_preview:
-                # Show "GO!" message for 1 second
-                overlay = frame.copy()
-                cv2.rectangle(overlay, (0, 0), (frame.shape[1], frame.shape[0]), (0, 255, 0), -1)
-                frame = cv2.addWeighted(frame, 0.3, overlay, 0.7, 0)
-                
-                cv2.putText(frame, "GO!", 
-                           (frame.shape[1]//2 - 100, frame.shape[0]//2), 
-                           cv2.FONT_HERSHEY_SIMPLEX, 4, (255, 255, 255), 8)
-                
-                cv2.imshow("AI Fitness Trainer - Countdown", frame)
-                cv2.waitKey(1000)  # Show "GO!" for 1 second
-            
-            print("Countdown complete! Starting form analysis...")
-            return True
-        
-        if show_preview:
-            # Create semi-transparent overlay
-            overlay = frame.copy()
-            cv2.rectangle(overlay, (0, 0), (frame.shape[1], frame.shape[0]), (0, 0, 0), -1)
-            frame = cv2.addWeighted(frame, 0.6, overlay, 0.4, 0)
-            
-            # Display countdown number
-            countdown_text = str(int(remaining) + 1)
-            text_size = cv2.getTextSize(countdown_text, cv2.FONT_HERSHEY_SIMPLEX, 8, 12)[0]
-            text_x = (frame.shape[1] - text_size[0]) // 2
-            text_y = (frame.shape[0] + text_size[1]) // 2
-            
-            cv2.putText(frame, countdown_text, (text_x, text_y), 
-                       cv2.FONT_HERSHEY_SIMPLEX, 8, (0, 255, 255), 12)
-            
-            # Display instructions
-            instructions = [
-                "Position yourself for exercise",
-                "Make sure you're fully visible", 
-                f"Starting in {int(remaining) + 1}...",
-                "Press 'q' to cancel"
-            ]
-            
-            for i, instruction in enumerate(instructions):
-                y_pos = 50 + (i * 40)
-                cv2.putText(frame, instruction, (50, y_pos), 
-                           cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2)
-            
-            cv2.imshow("AI Fitness Trainer - Countdown", frame)
-        
-        # Check for quit key
-        key = cv2.waitKey(30) & 0xFF
-        if key == ord('q'):
-            print("Countdown cancelled by user")
-            return False
-
 def test_on_webcam():
     """
-    Test the model on webcam with countdown, adaptive velocity tracking and fitness scoring
+    Test the model on webcam with adaptive velocity tracking and fitness scoring
     ENHANCED: Proper ready position detection integration - SINGLE PERSON TRACKING
     
     CRITICAL CHANGES:
@@ -4363,17 +4725,6 @@ def test_on_webcam():
     
     print(f"Resolution: {actual_width}x{actual_height} at {actual_fps}fps")
     
-    # Add countdown
-    countdown_completed = countdown_with_preview(cap, countdown_seconds=5, show_preview=True)
-    
-    if not countdown_completed:
-        print("Countdown cancelled. Exiting...")
-        cap.release()
-        cv2.destroyAllWindows()
-        return
-    
-    cv2.destroyAllWindows()
-    
     print("\n" + "="*50)
     print("READY POSITION DETECTION PHASE")
     print("="*50)
@@ -4381,7 +4732,6 @@ def test_on_webcam():
     print("📊 Tracking will start automatically when ready position is detected")
     print("⚡ Stay steady in ready position until tracking begins")
     print("Press 'q' to quit, 's' to save current frame, 'r' to reset")
-    print("Press 'c' to restart countdown")
     
     saved_count = 0
     person_tracking_stats = {
@@ -4517,16 +4867,6 @@ def test_on_webcam():
             person_tracking_stats['frames_after_ready'] = 0
             person_tracking_stats['ready_detection_frame'] = None
             print("🔄 System reset - assume ready position to restart tracking")
-        elif key == ord('c'):
-            # Restart countdown
-            print("Restarting countdown...")
-            cv2.destroyAllWindows()
-            countdown_completed = countdown_with_preview(cap, countdown_seconds=5, show_preview=True)
-            if not countdown_completed:
-                print("Countdown cancelled. Exiting...")
-                break
-            cv2.destroyAllWindows()
-            print("Countdown complete! Resuming ready position detection...")
     
     cap.release()
     cv2.destroyAllWindows()
